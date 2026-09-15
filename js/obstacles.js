@@ -121,6 +121,12 @@ class ObstacleManager {
       base = cfg ? cfg.get('cannonSpawnInterval') : 1.35;
     } else if (this.currentMode === 'laser') {
       base = cfg ? cfg.get('laserSpawnInterval') : 1.45;
+    } else if (this.currentMode === 'versus') {
+      const vHazard = cfg ? cfg.get('versusHazardMode') : 'allstar';
+      if (vHazard === 'rock') base = cfg ? cfg.get('rockSpawnInterval') : 1.6;
+      else if (vHazard === 'cannon') base = cfg ? cfg.get('cannonSpawnInterval') : 1.35;
+      else if (vHazard === 'laser') base = cfg ? cfg.get('laserSpawnInterval') : 1.45;
+      else base = cfg ? cfg.get('allstarSpawnInterval') : 1.2;
     } else {
       // All-Star mode
       base = cfg ? cfg.get('allstarSpawnInterval') : 1.2;
@@ -345,39 +351,56 @@ class ObstacleManager {
    * 2. Level 2: exactly 2 lines
    * 3. Level 3: exactly 3 lines
    * 4. Level 4+: exactly 4 lines (capped at 4)
-   * 5. One of the lines MUST target the player's current row or column!
+   * 5. In single-player: One line MUST target player row or col.
+   * 6. In versus mode: Targets BOTH P1 and P2 (when numLines >= 2).
    */
-  generatePattern(player) {
+  generatePattern(playerOrPlayers) {
     const cfg = window.configManager;
     const maxLines = cfg ? cfg.get('maxLines') : 4;
     const numLines = Math.min(maxLines, Math.max(1, this.wave));
 
-    const pCol = player ? player.col : Math.floor(Math.random() * this.gridSize);
-    const pRow = player ? player.row : Math.floor(Math.random() * this.gridSize);
-
-    // Rule: One line MUST be on the player's current line (either horizontal row or vertical column)
-    const targetPlayerHorizontal = Math.random() < 0.5;
-    let primaryLine;
-    if (targetPlayerHorizontal) {
-      primaryLine = {
-        dir: 'horizontal',
-        side: Math.random() < 0.5 ? 'left' : 'right',
-        index: pRow
-      };
-    } else {
-      primaryLine = {
-        dir: 'vertical',
-        side: Math.random() < 0.5 ? 'top' : 'bottom',
-        index: pCol
-      };
-    }
-
-    const selectedLines = [primaryLine];
+    const selectedLines = [];
     const usedH = new Set();
     const usedV = new Set();
 
-    if (primaryLine.dir === 'horizontal') usedH.add(primaryLine.index);
-    else usedV.add(primaryLine.index);
+    const addTargetForPlayer = (pl) => {
+      const pCol = pl ? pl.col : Math.floor(Math.random() * this.gridSize);
+      const pRow = pl ? pl.row : Math.floor(Math.random() * this.gridSize);
+      const hAvailable = !usedH.has(pRow);
+      const vAvailable = !usedV.has(pCol);
+
+      let targetH = Math.random() < 0.5;
+      if (hAvailable && !vAvailable) targetH = true;
+      else if (!hAvailable && vAvailable) targetH = false;
+      else if (!hAvailable && !vAvailable) return null; // Both lines already occupied
+
+      const line = {
+        dir: targetH ? 'horizontal' : 'vertical',
+        side: targetH ? (Math.random() < 0.5 ? 'left' : 'right') : (Math.random() < 0.5 ? 'top' : 'bottom'),
+        index: targetH ? pRow : pCol
+      };
+      if (targetH) usedH.add(pRow);
+      else usedV.add(pCol);
+      return line;
+    };
+
+    if (Array.isArray(playerOrPlayers)) {
+      const alivePlayers = playerOrPlayers.filter(p => p && !p.isDead);
+      if (alivePlayers.length >= 2 && numLines >= 2) {
+        // Multi-targeting: Target P1 and P2
+        const l0 = addTargetForPlayer(alivePlayers[0]);
+        if (l0) selectedLines.push(l0);
+        const l1 = addTargetForPlayer(alivePlayers[1]);
+        if (l1) selectedLines.push(l1);
+      } else if (alivePlayers.length > 0) {
+        const targetPl = alivePlayers[Math.floor(Math.random() * alivePlayers.length)];
+        const l = addTargetForPlayer(targetPl);
+        if (l) selectedLines.push(l);
+      }
+    } else {
+      const l = addTargetForPlayer(playerOrPlayers);
+      if (l) selectedLines.push(l);
+    }
 
     // Build candidate pool of remaining available rows and columns
     const candidates = [];
@@ -406,7 +429,7 @@ class ObstacleManager {
       [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
     }
 
-    // Pick remaining (numLines - 1) lines without duplicating row or column
+    // Pick remaining lines up to numLines without duplicating row or column
     for (const cand of candidates) {
       if (selectedLines.length >= numLines) break;
       if (cand.dir === 'horizontal' && !usedH.has(cand.index)) {
@@ -422,14 +445,26 @@ class ObstacleManager {
     const obstacleTypes = ['rock', 'cannon', 'laser'];
     for (const line of selectedLines) {
       let type = this.currentMode;
-      if (type === 'allstar') {
-        type = obstacleTypes[Math.floor(Math.random() * obstacleTypes.length)];
+      if (type === 'allstar' || type === 'versus') {
+        const vHazard = (type === 'versus' && cfg) ? (cfg.get('versusHazardMode') || 'allstar') : type;
+        if (vHazard === 'allstar' || type === 'allstar') {
+          type = obstacleTypes[Math.floor(Math.random() * obstacleTypes.length)];
+        } else {
+          type = vHazard;
+        }
       }
       this.addWarning(type, line.side, line.index);
     }
   }
 
-  checkCollisions(player) {
+  checkCollisions(playerOrPlayers) {
+    if (Array.isArray(playerOrPlayers)) {
+      return playerOrPlayers.filter(p => this.checkSingleCollision(p));
+    }
+    return this.checkSingleCollision(playerOrPlayers);
+  }
+
+  checkSingleCollision(player) {
     if (!player || player.isDead) return false;
 
     const px = player.animX;

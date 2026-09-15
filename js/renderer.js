@@ -234,9 +234,17 @@ class GameRenderer {
     // 5. Active Projectiles
     this.drawObstacles(obstacles);
 
-    // 6. Player (Mr. Oops)
+    // 6. Player (Mr. Oops / 1v1 Versus Players)
     if (player) {
-      this.drawPlayer(player, obstacles);
+      if (Array.isArray(player)) {
+        // Depth-sort players so the player standing lower on the board renders on top
+        const sortedPlayers = [...player].sort((a, b) => (a.animY || 0) - (b.animY || 0));
+        for (const p of sortedPlayers) {
+          this.drawPlayer(p, obstacles);
+        }
+      } else {
+        this.drawPlayer(player, obstacles);
+      }
     }
 
     // 7. Particles
@@ -267,6 +275,9 @@ class GameRenderer {
     } else if (theme === 'allstar') {
       c1 = '#251b2f';
       c2 = '#0e111a';
+    } else if (theme === 'versus') {
+      c1 = '#1c1f36';
+      c2 = '#0b0d18';
     }
 
     const grad = ctx.createRadialGradient(w / 2, h / 2, 40, w / 2, h / 2, w * 0.75);
@@ -734,6 +745,43 @@ class GameRenderer {
         ctx.beginPath();
         ctx.arc(0, headY + 2, 4.5, 0.2 * Math.PI, 0.8 * Math.PI);
         ctx.stroke();
+      }
+
+      // Versus Mode: Headband & Floating Player Indicator (P1 Blue / P2 Red)
+      if (player.id === 1 || player.id === 2 || player.color) {
+        const pColor = player.id === 1 ? '#007aff' : (player.id === 2 ? '#ff3b30' : (player.color || '#34c759'));
+        const pLabel = player.id === 1 ? 'P1' : (player.id === 2 ? 'P2' : 'P');
+
+        // Colored Headband with border
+        ctx.fillStyle = pColor;
+        drawRoundedRect(ctx, -headRadius + 0.5, headY - 4, headRadius * 2 - 1, 5, 2);
+        ctx.fill();
+
+        // Animated headband flapping tail
+        const tailSide = player.id === 1 ? -1 : 1;
+        const wave = Math.sin(this.bgTime * 14) * 3;
+        ctx.beginPath();
+        ctx.moveTo(tailSide * (headRadius - 1), headY - 2);
+        ctx.quadraticCurveTo(tailSide * (headRadius + 7), headY - 5 + wave, tailSide * (headRadius + 12), headY + wave);
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = pColor;
+        ctx.stroke();
+
+        // Floating P1/P2 pill badge above head
+        const badgeY = headY - 24;
+        ctx.fillStyle = pColor;
+        drawRoundedRect(ctx, -12, badgeY, 24, 13, 6);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        drawRoundedRect(ctx, -12, badgeY, 24, 13, 6);
+        ctx.stroke();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '900 9px "Fredoka", "Bungee", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(pLabel, 0, badgeY + 7);
       }
     }
 
