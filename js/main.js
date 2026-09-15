@@ -222,12 +222,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (btnPauseToggle) {
     btnPauseToggle.addEventListener('click', () => {
-      if (game.state === 'PLAYING') {
-        game.pauseGame();
-        pauseOverlay.classList.remove('hidden');
+      if (game.state === 'PLAYING' || game.state === 'START_COUNTDOWN') {
+        const who = game.netRole === 'client' ? 'p2' : (game.isVersus ? 'p1' : 'player');
+        game.pauseGame(who);
       } else if (game.state === 'PAUSED') {
         game.resumeGame();
-        pauseOverlay.classList.add('hidden');
       }
     });
   }
@@ -235,7 +234,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (btnResume) {
     btnResume.addEventListener('click', () => {
       game.resumeGame();
-      pauseOverlay.classList.add('hidden');
     });
   }
 
@@ -316,8 +314,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (btnRetry) {
     btnRetry.addEventListener('click', () => {
-      gameoverOverlay.classList.add('hidden');
-      game.restartGame();
+      if (game.isVersus && game.netRole) {
+        const myRole = game.netRole === 'host' ? 'p1' : 'p2';
+        game.setRematchVote(myRole, true);
+      } else {
+        gameoverOverlay.classList.add('hidden');
+        game.restartGame();
+      }
     });
   }
 

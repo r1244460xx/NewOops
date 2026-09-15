@@ -26,6 +26,12 @@ class Game {
 
     // LAN Multiplayer state
     this.netRole = null; // null (offline local) | 'host' | 'client'
+    this.pausedBy = null; // 'p1' | 'p2' | 'p2_left' | null
+    this.waitingForOpponent = false;
+    this.startCountdownTimer = 0;
+    this.lastCountdownSec = 0;
+    this.rematchVotes = { p1: false, p2: false };
+    this.rematchStarting = false;
     this.pendingSounds = [];
     this.activeBanner = null;
     this._gameOverFired = false;
@@ -145,21 +151,91 @@ class Game {
       }
     };
 
+    net.onJoined = (msg) => {
+      if (this.netRole === 'host') {
+        if (msg.opponent_present && (this.state === 'WAITING_FOR_PLAYERS' || this.waitingForOpponent)) {
+          this.waitingForOpponent = false;
+          const badge = document.getElementById('hud-net-badge');
+          if (badge) {
+            badge.textContent = '🟢 P2 已連線';
+            badge.className = 'hud-net-badge connected';
+          }
+          this.startMatchCountdown(3);
+        }
+      } else if (this.netRole === 'client') {
+        const badge = document.getElementById('hud-net-badge');
+        if (badge) {
+          badge.textContent = msg.host_present ? '🟢 P1 已連線' : '🟡 等待房主...';
+          badge.className = 'hud-net-badge ' + (msg.host_present ? 'connected' : 'waiting');
+        }
+      }
+    };
+
     net.onOpponentJoined = () => {
-      this.showWaveBanner('OPPONENT READY!', 'P2 (RED) JOINED THE MATCH!');
       const badge = document.getElementById('hud-net-badge');
       if (badge) {
         badge.textContent = '🟢 P2 已連線';
         badge.className = 'hud-net-badge connected';
       }
+      if (this.netRole === 'host') {
+        if (this.state === 'WAITING_FOR_PLAYERS' || this.waitingForOpponent) {
+          this.waitingForOpponent = false;
+          this.startMatchCountdown(3);
+        }
+      }
+    };
+
+    net.onHostReady = () => {
+      const badge = document.getElementById('hud-net-badge');
+      if (badge) {
+        badge.textContent = '🟢 P1 已連線';
+        badge.className = 'hud-net-badge connected';
+      }
     };
 
     net.onOpponentLeft = () => {
-      this.showWaveBanner('OPPONENT LEFT', 'P2 DISCONNECTED');
       const badge = document.getElementById('hud-net-badge');
       if (badge) {
         badge.textContent = '🟡 等待對手...';
         badge.className = 'hud-net-badge waiting';
+      }
+      if (this.netRole === 'host') {
+        this.showWaveBanner('OPPONENT LEFT', 'P2 DISCONNECTED', 0);
+        this.pauseGame('p2_left');
+      } else if (this.netRole === 'client') {
+        this.showWaveBanner('HOST LEFT', 'ROOM CLOSED', 0);
+      }
+    };
+
+    net.onPauseRequest = (msg) => {
+      if (this.netRole === 'host') {
+        this.pauseGame(msg.pausedBy || 'p2');
+      }
+    };
+
+    net.onResumeRequest = () => {
+      if (this.netRole === 'host') {
+        this.resumeGame();
+      }
+    };
+
+    net.onRematchVote = (msg) => {
+      if (this.netRole === 'host') {
+        this.setRematchVote('p2', Boolean(msg.ready));
+      }
+    };
+
+    net.onRematchSync = (msg) => {
+      if (this.netRole === 'client') {
+        this.rematchVotes = msg.rematchVotes || { p1: false, p2: false };
+        this.updateRematchUi(msg.startingSoon);
+        if (msg.startingSoon) {
+          this.playSound('gem');
+          setTimeout(() => {
+            const goOverlay = document.getElementById('gameover-overlay');
+            if (goOverlay) goOverlay.classList.add('hidden');
+          }, 1500);
+        }
       }
     };
   }
@@ -182,6 +258,9 @@ class Game {
       wave: this.wave,
       versusScores: this.versusScores,
       versusWinner: this.versusWinner,
+      pausedBy: this.pausedBy,
+      waitingForOpponent: this.waitingForOpponent,
+      rematchVotes: this.rematchVotes,
       players: this.players.map(p => ({
         id: p.id,
         playerIndex: p.playerIndex,
@@ -229,9 +308,21 @@ class Game {
   applyRemoteState(msg) {
     if (this.netRole !== 'client') return;
 
+    const prevRemoteState = this.state;
     this.state = msg.state;
     this.mode = msg.mode || 'versus';
     this.wave = msg.wave || 1;
+    this.pausedBy = msg.pausedBy || null;
+    if (msg.rematchVotes) {
+      this.rematchVotes = msg.rematchVotes;
+    }
+
+    if (this.state === 'PAUSED') {
+      this.showPauseUi(this.pausedBy);
+    } else if (prevRemoteState === 'PAUSED' && (this.state === 'PLAYING' || this.state === 'START_COUNTDOWN')) {
+      this.hidePauseUi();
+    }
+
     if (msg.versusScores) {
       this.versusScores = msg.versusScores;
       this.updateVersusHud();
@@ -258,7 +349,7 @@ class Game {
     }
 
     if (msg.banner && (!this.activeBanner || this.activeBanner.title !== msg.banner.title || this.activeBanner.sub !== msg.banner.sub)) {
-      this.showWaveBanner(msg.banner.title, msg.banner.sub);
+      this.showWaveBanner(msg.banner.title, msg.banner.sub, msg.banner.duration !== undefined ? msg.banner.duration : 1600);
     }
 
     if (msg.sounds && Array.isArray(msg.sounds)) {
@@ -280,6 +371,7 @@ class Game {
         targetWins: this.versusTargetWins,
         netRole: 'client'
       });
+      this.updateRematchUi(false);
     } else if (this.state === 'PLAYING') {
       this._gameOverFired = false;
     }
@@ -295,7 +387,6 @@ class Game {
     this._gameOverFired = false;
     this.pendingSounds = [];
     this.mode = mode;
-    this.state = 'PLAYING';
     this.score = 0;
     this.wave = 1;
     this.survivalTimer = 0;
@@ -304,6 +395,9 @@ class Game {
     this.hitFreezeTimer = 0;
     this.gameOverDelay = 0;
     this.bufferedMove = null;
+    this.pausedBy = null;
+    this.rematchVotes = { p1: false, p2: false };
+    this.rematchStarting = false;
 
     if (mode === 'versus') {
       this.isVersus = true;
@@ -312,11 +406,33 @@ class Game {
       this.versusRoundDelay = 0;
       const cfg = window.configManager;
       this.versusTargetWins = cfg ? Math.max(1, Math.round(cfg.get('versusTargetWins') || 3)) : 3;
+
+      if (this.netRole === 'host') {
+        const net = window.networkManager;
+        this.setupVersusBoard();
+        if (net && net.opponentConnected) {
+          this.waitingForOpponent = false;
+          this.startMatchCountdown(3);
+        } else {
+          this.waitingForOpponent = true;
+          this.state = 'WAITING_FOR_PLAYERS';
+          this.showWaveBanner('WAITING FOR OPPONENT', 'SHARE URL WITH P2 TO START!', 0);
+          this.broadcastHostState();
+        }
+        return;
+      } else if (this.netRole === 'client') {
+        this.state = 'WAITING_FOR_PLAYERS';
+        this.setupVersusBoard();
+        this.showWaveBanner('CONNECTING...', 'WAITING FOR HOST TO START', 0);
+        return;
+      }
+
       this.startVersusRound();
       return;
     }
 
     this.isVersus = false;
+    this.state = 'PLAYING';
     this.player = this.createPlayer(2, 3, 0, false);
     this.players = [this.player];
 
@@ -327,6 +443,48 @@ class Game {
     this.sound.startBgm();
 
     this.showWaveBanner(`LEVEL ${this.wave}`, 'GET READY!');
+  }
+
+  setupVersusBoard() {
+    const p1 = this.createPlayer(1, 3, 0, true);
+    const p2 = this.createPlayer(4, 3, 1, true);
+    this.players = [p1, p2];
+    this.player = this.netRole === 'client' ? p2 : p1;
+    this.obstacleManager.reset('versus');
+    this.updateVersusHud();
+  }
+
+  startMatchCountdown(seconds = 3) {
+    this.state = 'START_COUNTDOWN';
+    this.startCountdownTimer = seconds;
+    this.lastCountdownSec = seconds;
+    this.playSound('step');
+    this.showWaveBanner('GET READY!', `MATCH STARTING IN ${seconds}...`, 1200);
+    if (this.netRole === 'host') {
+      this.broadcastHostState();
+    }
+  }
+
+  updateCountdown(dt) {
+    if (this.startCountdownTimer > 0) {
+      this.startCountdownTimer -= dt;
+      const sec = Math.ceil(this.startCountdownTimer);
+      if (sec !== this.lastCountdownSec) {
+        this.lastCountdownSec = sec;
+        if (sec > 0) {
+          this.playSound('step');
+          this.showWaveBanner('GET READY!', `MATCH STARTING IN ${sec}...`, 1200);
+        } else {
+          this.playSound('gem');
+          this.showWaveBanner('BATTLE START!', 'FIGHT!', 1500);
+        }
+      }
+      if (this.startCountdownTimer <= 0) {
+        this.startVersusRound();
+      } else if (this.netRole === 'host') {
+        this.broadcastHostState();
+      }
+    }
   }
 
   startVersusRound() {
@@ -343,7 +501,7 @@ class Game {
     const p1 = this.createPlayer(1, 3, 0, true);
     const p2 = this.createPlayer(4, 3, 1, true);
     this.players = [p1, p2];
-    this.player = p1;
+    this.player = this.netRole === 'client' ? p2 : p1;
 
     this.obstacleManager.reset('versus');
 
@@ -357,6 +515,9 @@ class Game {
     );
 
     this.updateVersusHud();
+    if (this.netRole === 'host') {
+      this.broadcastHostState();
+    }
   }
 
   updateVersusHud() {
@@ -366,20 +527,180 @@ class Game {
     }
   }
 
-  restartGame() {
-    this.startGame(this.mode, this.netRole);
+  showPauseUi(pausedBy) {
+    const pauseOverlay = document.getElementById('pause-overlay');
+    if (!pauseOverlay) return;
+    pauseOverlay.classList.remove('hidden');
+
+    const pauseSubtitle = document.getElementById('pause-subtitle');
+    const btnRestartPause = document.getElementById('btn-restart-pause');
+
+    if (this.isVersus && this.netRole) {
+      if (btnRestartPause) btnRestartPause.style.display = 'none';
+      if (pauseSubtitle) {
+        pauseSubtitle.style.display = 'block';
+        if (pausedBy === 'p1') {
+          pauseSubtitle.innerHTML = '<span style="color:#007aff; font-weight:bold;">🔵 由 P1 (藍方) 暫停</span>';
+        } else if (pausedBy === 'p2') {
+          pauseSubtitle.innerHTML = '<span style="color:#ff3b30; font-weight:bold;">🔴 由 P2 (紅方) 暫停</span>';
+        } else if (pausedBy === 'p2_left') {
+          pauseSubtitle.innerHTML = '<span style="color:#ff9500; font-weight:bold;">⚠️ 對手已斷線，等待重新加入...</span>';
+        } else {
+          pauseSubtitle.textContent = '連線對戰暫停中';
+        }
+      }
+    } else {
+      if (btnRestartPause) btnRestartPause.style.display = 'inline-block';
+      if (pauseSubtitle) pauseSubtitle.style.display = 'none';
+    }
   }
 
-  pauseGame() {
-    if (this.state === 'PLAYING') {
+  hidePauseUi() {
+    const pauseOverlay = document.getElementById('pause-overlay');
+    if (pauseOverlay) pauseOverlay.classList.add('hidden');
+  }
+
+  pauseGame(pausedBy = null) {
+    if (this.netRole === 'client') {
+      if (window.networkManager) {
+        window.networkManager.sendPause('p2');
+      }
+      return;
+    }
+
+    if (this.state === 'PLAYING' || this.state === 'START_COUNTDOWN') {
       this.state = 'PAUSED';
+      this.pausedBy = pausedBy || (this.isVersus ? 'p1' : 'player');
+      this.sound.stopBgm();
+      this.showPauseUi(this.pausedBy);
+      if (this.netRole === 'host') {
+        this.broadcastHostState();
+      }
     }
   }
 
   resumeGame() {
+    if (this.netRole === 'client') {
+      if (window.networkManager) {
+        window.networkManager.sendResume();
+      }
+      return;
+    }
+
     if (this.state === 'PAUSED') {
       this.state = 'PLAYING';
+      this.pausedBy = null;
+      this.sound.startBgm();
+      this.hidePauseUi();
+      if (this.netRole === 'host') {
+        this.broadcastHostState();
+      }
     }
+  }
+
+  setRematchVote(player, ready = true) {
+    if (!this.isVersus || !this.netRole) {
+      const goOverlay = document.getElementById('gameover-overlay');
+      if (goOverlay) goOverlay.classList.add('hidden');
+      this.restartGame();
+      return;
+    }
+
+    if (this.netRole === 'client') {
+      this.rematchVotes.p2 = ready;
+      if (window.networkManager) {
+        window.networkManager.sendRematchVote(ready);
+      }
+      this.updateRematchUi();
+      return;
+    }
+
+    // Host
+    this.rematchVotes[player] = ready;
+    if (window.networkManager) {
+      window.networkManager.sendRematchSync(this.rematchVotes, false);
+    }
+    this.updateRematchUi();
+
+    // Check mutual agreement
+    if (this.rematchVotes.p1 && this.rematchVotes.p2 && !this.rematchStarting) {
+      this.rematchStarting = true;
+      if (window.networkManager) {
+        window.networkManager.sendRematchSync(this.rematchVotes, true);
+      }
+      this.updateRematchUi(true);
+      this.playSound('gem');
+
+      setTimeout(() => {
+        this.rematchVotes = { p1: false, p2: false };
+        this.rematchStarting = false;
+        const goOverlay = document.getElementById('gameover-overlay');
+        if (goOverlay) goOverlay.classList.add('hidden');
+
+        this.versusScores = { p1: 0, p2: 0 };
+        this.versusWinner = null;
+        this.setupVersusBoard();
+        this.startMatchCountdown(3);
+      }, 1500);
+    }
+  }
+
+  updateRematchUi(startingSoon = false) {
+    const btnRetry = document.getElementById('btn-retry');
+    const bar = document.getElementById('rematch-status-bar');
+    const pillP1 = document.getElementById('rematch-pill-p1');
+    const pillP2 = document.getElementById('rematch-pill-p2');
+
+    if (!this.isVersus || !this.netRole) {
+      if (bar) bar.style.display = 'none';
+      if (btnRetry) {
+        btnRetry.textContent = '再來一局 (SPACE)';
+        btnRetry.disabled = false;
+      }
+      return;
+    }
+
+    if (bar) bar.style.display = 'flex';
+
+    if (pillP1) {
+      if (this.rematchVotes.p1) {
+        pillP1.className = 'rematch-pill ready';
+        pillP1.textContent = '🔵 P1: ✅ 已同意';
+      } else {
+        pillP1.className = 'rematch-pill';
+        pillP1.textContent = '🔵 P1: ⏳ 等待中';
+      }
+    }
+
+    if (pillP2) {
+      if (this.rematchVotes.p2) {
+        pillP2.className = 'rematch-pill ready';
+        pillP2.textContent = '🔴 P2: ✅ 已同意';
+      } else {
+        pillP2.className = 'rematch-pill';
+        pillP2.textContent = '🔴 P2: ⏳ 等待中';
+      }
+    }
+
+    if (btnRetry) {
+      if (startingSoon) {
+        btnRetry.textContent = '🚀 雙方皆已同意！準備開戰...';
+        btnRetry.disabled = true;
+      } else {
+        const myRole = this.netRole === 'host' ? 'p1' : 'p2';
+        if (this.rematchVotes[myRole]) {
+          btnRetry.textContent = '✅ 已同意 (等待對手 1/2...)';
+          btnRetry.disabled = true;
+        } else {
+          btnRetry.textContent = '⚔️ 同意再來一局';
+          btnRetry.disabled = false;
+        }
+      }
+    }
+  }
+
+  restartGame() {
+    this.startGame(this.mode, this.netRole);
   }
 
   returnToMenu() {
@@ -620,7 +941,7 @@ class Game {
     this.showWaveBanner(`LEVEL ${this.wave}`, 'SPEED UP!');
   }
 
-  showWaveBanner(title, sub) {
+  showWaveBanner(title, sub, duration = 1600) {
     const banner = document.getElementById('wave-banner');
     const bTitle = document.getElementById('wave-banner-title');
     const bSub = document.getElementById('wave-banner-sub');
@@ -629,10 +950,15 @@ class Game {
       bSub.textContent = sub;
       banner.classList.remove('hidden');
 
+      this.activeBanner = { title, sub, duration };
+
       clearTimeout(this.bannerTimer);
-      this.bannerTimer = setTimeout(() => {
-        banner.classList.add('hidden');
-      }, 1600);
+      if (duration > 0) {
+        this.bannerTimer = setTimeout(() => {
+          banner.classList.add('hidden');
+          this.activeBanner = null;
+        }, duration);
+      }
     }
   }
 
@@ -760,6 +1086,20 @@ class Game {
   update(dt) {
     this.renderer.update(dt);
 
+    if (this.state === 'START_COUNTDOWN') {
+      if (this.netRole === 'host') {
+        this.updateCountdown(dt);
+      }
+      return;
+    }
+
+    if (this.state === 'WAITING_FOR_PLAYERS') {
+      if (this.netRole === 'host') {
+        this.broadcastHostState();
+      }
+      return;
+    }
+
     if (this.state !== 'PLAYING') return;
 
     // Client Mode: all game simulation is driven by Host via applyRemoteState()
@@ -799,6 +1139,7 @@ class Game {
               netRole: this.netRole
             });
           }
+          this.updateRematchUi(false);
         }
         if (this.netRole === 'host') this.broadcastHostState();
         return;

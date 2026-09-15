@@ -128,6 +128,14 @@ class NetworkManager {
       if (this.onState) this.onState(msg);
     } else if (type === 'input') {
       if (this.onInput) this.onInput(msg.payload);
+    } else if (type === 'pause_request') {
+      if (this.onPauseRequest) this.onPauseRequest(msg);
+    } else if (type === 'resume_request') {
+      if (this.onResumeRequest) this.onResumeRequest(msg);
+    } else if (type === 'rematch_vote') {
+      if (this.onRematchVote) this.onRematchVote(msg);
+    } else if (type === 'rematch_sync') {
+      if (this.onRematchSync) this.onRematchSync(msg);
     } else if (type === 'pong') {
       // Keepalive response
     }
@@ -146,6 +154,34 @@ class NetworkManager {
         payload: { dx, dy }
       });
     }
+  }
+
+  sendPause(pausedBy = 'p2') {
+    this.send({
+      type: 'pause_request',
+      pausedBy
+    });
+  }
+
+  sendResume() {
+    this.send({
+      type: 'resume_request'
+    });
+  }
+
+  sendRematchVote(ready = true) {
+    this.send({
+      type: 'rematch_vote',
+      ready
+    });
+  }
+
+  sendRematchSync(rematchVotes, startingSoon = false) {
+    this.send({
+      type: 'rematch_sync',
+      rematchVotes,
+      startingSoon
+    });
   }
 
   sendState(stateSnapshot) {

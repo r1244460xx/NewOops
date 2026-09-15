@@ -1115,4 +1115,41 @@ input:checked + .slider:before {
   color: #ffd60a;
 }
 
+/* Rematch Status Bar */
+.rematch-status-bar {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  margin-bottom: 8px;
+}
+
+.rematch-pill {
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 700;
+  background: rgba(142, 142, 147, 0.15);
+  color: #636366;
+  border: 1px solid rgba(142, 142, 147, 0.25);
+  transition: all 0.2s ease;
+}
+
+.rematch-pill.ready {
+  background: rgba(52, 199, 89, 0.15);
+  color: #28a745;
+  border-color: rgba(52, 199, 89, 0.4);
+  box-shadow: 0 0 10px rgba(52, 199, 89, 0.2);
+}
+
+.pause-subtitle {
+  font-size: 14px;
+  color: #636366;
+  margin-top: -6px;
+  margin-bottom: 16px;
+  font-weight: 600;
+}
+
+
 

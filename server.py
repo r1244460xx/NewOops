@@ -148,20 +148,17 @@ class RoomManager:
             room_code = str(msg.get("room", "1234")).strip()
             role = msg.get("role", "host")
             self.join_room(room_code, role, client)
-        elif msg_type == "input":
-            # Forward input from client (P2) to host (P1)
-            with self.lock:
-                room = self.rooms.get(client.room_code)
-                if room and room.get("host") and client.role == "client":
-                    room["host"].send_json(msg)
-        elif msg_type == "state":
-            # Forward authoritative game state from host to client
-            with self.lock:
-                room = self.rooms.get(client.room_code)
-                if room and room.get("client") and client.role == "host":
-                    room["client"].send_json(msg)
         elif msg_type == "ping":
             client.send_json({"type": "pong"})
+        else:
+            # Generic bidirectional relay between Host (P1) and Client (P2)
+            with self.lock:
+                room = self.rooms.get(getattr(client, "room_code", None))
+                if room:
+                    if client.role == "client" and room.get("host"):
+                        room["host"].send_json(msg)
+                    elif client.role == "host" and room.get("client"):
+                        room["client"].send_json(msg)
 
     def remove_client(self, client):
         with self.lock:
