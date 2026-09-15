@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Mr. Oops!! - 經典極限迴避遊戲</title>
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Fredoka:wght@400;600;700&family=Noto+Sans+TC:wght@500;700;900&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="game-wrapper">
+    <!-- Header HUD -->
+    <header id="game-hud" class="hidden">
+      <div class="hud-item hud-mode">
+        <span class="hud-label">MODE</span>
+        <span id="hud-mode-name" class="hud-val">ROCK</span>
+      </div>
+      <div class="hud-item hud-wave">
+        <span class="hud-label">LEVEL</span>
+        <span id="hud-wave-val" class="hud-val">1</span>
+      </div>
+      <div class="hud-item hud-score">
+        <span class="hud-label">SCORE</span>
+        <span id="hud-score-val" class="hud-val">0</span>
+      </div>
+      <div class="hud-item hud-best">
+        <span class="hud-label">BEST</span>
+        <span id="hud-best-val" class="hud-val">0</span>
+      </div>
+      <div class="hud-controls">
+        <a id="btn-config-toggle" href="settings.html" target="_blank" class="hud-icon-btn" title="開啟設定分頁 (settings.html)" aria-label="遊戲參數後台" style="text-decoration:none; display:inline-flex; align-items:center; justify-content:center;">⚙️</a>
+        <button id="btn-sound-toggle" class="hud-icon-btn" title="切換音效" aria-label="切換音效">🔊</button>
+        <button id="btn-pause-toggle" class="hud-icon-btn" title="暫停" aria-label="暫停">⏸</button>
+      </div>
+    </header>
+
+    <!-- Canvas Play Area -->
+    <div id="canvas-container">
+      <canvas id="game-canvas"></canvas>
+      
+      <!-- In-game floating banner (e.g. Level Start, Stage Clear, Near Miss) -->
+      <div id="wave-banner" class="hidden">
+        <div id="wave-banner-title">LEVEL 1</div>
+        <div id="wave-banner-sub">GET READY!</div>
+      </div>
+    </div>
+
+    <!-- Mobile Virtual Controls (Optional / Responsive) -->
+    <div id="touch-controls" class="hidden">
+      <div class="dpad-grid">
+        <button class="dpad-btn dpad-up" data-dir="up">▲</button>
+        <button class="dpad-btn dpad-left" data-dir="left">◀</button>
+        <div class="dpad-center"></div>
+        <button class="dpad-btn dpad-right" data-dir="right">▶</button>
+        <button class="dpad-btn dpad-down" data-dir="down">▼</button>
+      </div>
+      <div class="touch-hint">滑動螢幕或使用按鍵移動</div>
+    </div>
+
+    <!-- MAIN MENU MODAL -->
+    <div id="menu-overlay" class="modal-overlay">
+      <div class="menu-box">
+        <div class="logo-container">
+          <div class="logo-badge">PONOS 2011 經典回顧</div>
+          <h1 class="game-logo">Mr. <span class="highlight">Oops!!</span></h1>
+          <p class="game-slogan">極限方格迴避 • 反應力大挑戰</p>
+        </div>
+
+        <div class="mode-select-grid">
+          <!-- Mode 1: Slow Rock -->
+          <button class="mode-card" data-mode="rock">
+            <div class="mode-icon">🪨</div>
+            <div class="mode-info">
+              <div class="mode-title">慢速巨石 (ROCK)</div>
+              <div class="mode-desc">巨大岩石滾動碾壓！速度雖慢但體積大，考驗安全走位。</div>
+            </div>
+            <div class="mode-high" id="best-rock">BEST: 0</div>
+          </button>
+
+          <!-- Mode 2: Medium Cannonball -->
+          <button class="mode-card" data-mode="cannon">
+            <div class="mode-icon">💣</div>
+            <div class="mode-info">
+              <div class="mode-title">中速砲彈 (CANNON)</div>
+              <div class="mode-desc">鐵球砲彈疾馳而過！節奏輕快、縱橫交錯，考驗節奏感。</div>
+            </div>
+            <div class="mode-high" id="best-cannon">BEST: 0</div>
+          </button>
+
+          <!-- Mode 3: Fast Laser -->
+          <button class="mode-card" data-mode="laser">
+            <div class="mode-icon">⚡</div>
+            <div class="mode-info">
+              <div class="mode-title">快速雷射 (LASER)</div>
+              <div class="mode-desc">閃電光束瞬間貫穿！注意警報線預告，考驗瞬間極限反應。</div>
+            </div>
+            <div class="mode-high" id="best-laser">BEST: 0</div>
+          </button>
+
+          <!-- Mode 4: All-Star Chaos -->
+          <button class="mode-card all-star" data-mode="allstar">
+            <div class="mode-icon">👑</div>
+            <div class="mode-info">
+              <div class="mode-title">全明星大亂鬥 (ALL-STAR)</div>
+              <div class="mode-desc">巨石 + 砲彈 + 雷射三管齊下！波次遞增難度瘋狂攀升。</div>
+            </div>
+            <div class="mode-high" id="best-allstar">BEST: 0</div>
+          </button>
+        </div>
+
+        <!-- Extra Settings -->
+        <div class="menu-settings">
+          <label class="setting-toggle">
+            <input type="checkbox" id="toggle-bloody">
+            <span class="slider"></span>
+            <span class="setting-label">🩸 血腥模式 (Bloody Mode 致敬版)</span>
+          </label>
+          <label class="setting-toggle">
+            <input type="checkbox" id="toggle-dpad" checked>
+            <span class="slider"></span>
+            <span class="setting-label">🎮 螢幕虛擬按鍵</span>
+          </label>
+          <a id="btn-menu-open-config" href="settings.html" target="_blank" class="btn btn-secondary menu-config-btn" style="margin-top: 6px; padding: 10px; font-size: 13px; text-decoration: none; text-align: center; display: inline-flex; align-items: center; justify-content: center; gap: 6px;">⚙️ 開啟遊戲參數設定後台 (settings.html)</a>
+        </div>
+
+        <!-- Controls Guide -->
+        <div class="menu-guide">
+          <span>鍵盤：<strong>↑ ↓ ← →</strong> 或 <strong>W A S D</strong></span>
+          <span>手機：<strong>滑動螢幕 (Swipe)</strong> 或 <strong>點擊虛擬鍵</strong></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- PAUSE MODAL -->
+    <div id="pause-overlay" class="modal-overlay hidden">
+      <div class="modal-box">
+        <h2>遊戲暫停</h2>
+        <div class="modal-actions">
+          <button id="btn-resume" class="btn btn-primary">繼續遊戲</button>
+          <button id="btn-restart-pause" class="btn btn-secondary">重新開始</button>
+          <button id="btn-menu-pause" class="btn btn-accent">返回主選單</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- GAME OVER MODAL -->
+    <div id="gameover-overlay" class="modal-overlay hidden">
+      <div class="modal-box gameover-box">
+        <div class="oops-comic-bubble">OOPS!!</div>
+        <h2 id="gameover-title">YOU CRASHED!</h2>
+        
+        <div class="result-stats">
+          <div class="stat-row">
+            <span class="stat-label">模式：</span>
+            <span id="result-mode" class="stat-val">ROCK</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">生存等級：</span>
+            <span id="result-wave" class="stat-val">Level 5</span>
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">最終分數：</span>
+            <span id="result-score" class="stat-val">1250</span>
+          </div>
+          <div class="stat-row new-record-row hidden" id="new-record-badge">
+            🏆 新紀錄 HIGH SCORE!
+          </div>
+          <div class="stat-row">
+            <span class="stat-label">歷史最佳：</span>
+            <span id="result-best" class="stat-val">2400</span>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button id="btn-retry" class="btn btn-primary">再來一局 (SPACE)</button>
+          <button id="btn-menu-gameover" class="btn btn-secondary">返回主選單 (ESC)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Scripts in dependency order -->
+  <script src="js/config.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/renderer.js"></script>
+  <script src="js/obstacles.js"></script>
+  <script src="js/game.js"></script>
+  <script src="js/main.js"></script>
+</body>
+</html>
