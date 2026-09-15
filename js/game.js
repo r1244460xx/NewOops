@@ -24,8 +24,16 @@ class Game {
     this.versusRoundDelay = 0;
     this.players = [];
 
+    // LAN Multiplayer state
+    this.netRole = null; // null (offline local) | 'host' | 'client'
+    this.pendingSounds = [];
+    this.activeBanner = null;
+    this._gameOverFired = false;
+
     // Player Object
-    this.player = this.createPlayer(2, 3, 0);
+    this.player = this.createPlayer(2, 3, 0, false);
+
+    this.initNetwork();
 
     // Connect hopDuration to live config updates
     if (window.configManager) {
@@ -121,12 +129,171 @@ class Game {
     return this.highScores[mode] || 0;
   }
 
-  startGame(mode) {
+  initNetwork() {
+    const net = window.networkManager;
+    if (!net) return;
+
+    net.onInput = (payload) => {
+      if (this.netRole === 'host' && this.isVersus && this.state === 'PLAYING') {
+        this.movePlayer(1, payload.dx, payload.dy);
+      }
+    };
+
+    net.onState = (msg) => {
+      if (this.netRole === 'client') {
+        this.applyRemoteState(msg);
+      }
+    };
+
+    net.onOpponentJoined = () => {
+      this.showWaveBanner('OPPONENT READY!', 'P2 (RED) JOINED THE MATCH!');
+      const badge = document.getElementById('hud-net-badge');
+      if (badge) {
+        badge.textContent = '🟢 P2 已連線';
+        badge.className = 'hud-net-badge connected';
+      }
+    };
+
+    net.onOpponentLeft = () => {
+      this.showWaveBanner('OPPONENT LEFT', 'P2 DISCONNECTED');
+      const badge = document.getElementById('hud-net-badge');
+      if (badge) {
+        badge.textContent = '🟡 等待對手...';
+        badge.className = 'hud-net-badge waiting';
+      }
+    };
+  }
+
+  playSound(name) {
+    if (this.sound && typeof this.sound[name] === 'function') {
+      this.sound[name]();
+    }
+    if (this.netRole === 'host') {
+      this.pendingSounds.push(name);
+    }
+  }
+
+  broadcastHostState() {
+    if (!window.networkManager || !window.networkManager.isConnected) return;
+    const sounds = this.pendingSounds.splice(0);
+    window.networkManager.sendState({
+      state: this.state,
+      mode: this.mode,
+      wave: this.wave,
+      versusScores: this.versusScores,
+      versusWinner: this.versusWinner,
+      players: this.players.map(p => ({
+        id: p.id,
+        playerIndex: p.playerIndex,
+        col: p.col,
+        row: p.row,
+        animX: p.animX,
+        animY: p.animY,
+        hopZ: p.hopZ,
+        tiltAngle: p.tiltAngle,
+        isHopping: p.isHopping,
+        isScared: p.isScared,
+        isDead: p.isDead
+      })),
+      obstacles: this.obstacleManager.obstacles.map(o => ({
+        type: o.type,
+        x: o.x,
+        y: o.y,
+        vx: o.vx,
+        vy: o.vy,
+        side: o.side,
+        index: o.index,
+        rotation: o.rotation,
+        direction: o.direction,
+        duration: o.duration,
+        maxDuration: o.maxDuration
+      })),
+      warnings: this.obstacleManager.warnings.map(w => ({
+        type: w.type,
+        side: w.side,
+        index: w.index,
+        direction: w.direction,
+        timer: w.timer,
+        maxTimer: w.maxTimer
+      })),
+      collectibles: this.collectibles.map(c => ({
+        col: c.col,
+        row: c.row,
+        life: c.life
+      })),
+      banner: this.activeBanner,
+      sounds: sounds
+    });
+  }
+
+  applyRemoteState(msg) {
+    if (this.netRole !== 'client') return;
+
+    this.state = msg.state;
+    this.mode = msg.mode || 'versus';
+    this.wave = msg.wave || 1;
+    if (msg.versusScores) {
+      this.versusScores = msg.versusScores;
+      this.updateVersusHud();
+    }
+    if (msg.versusWinner) {
+      this.versusWinner = msg.versusWinner;
+    }
+
+    if (msg.players && Array.isArray(msg.players)) {
+      this.players = msg.players;
+      this.player = this.players[1] || this.players[0];
+    }
+
+    if (msg.obstacles && Array.isArray(msg.obstacles)) {
+      this.obstacleManager.obstacles = msg.obstacles;
+    }
+
+    if (msg.warnings && Array.isArray(msg.warnings)) {
+      this.obstacleManager.warnings = msg.warnings;
+    }
+
+    if (msg.collectibles && Array.isArray(msg.collectibles)) {
+      this.collectibles = msg.collectibles;
+    }
+
+    if (msg.banner && (!this.activeBanner || this.activeBanner.title !== msg.banner.title || this.activeBanner.sub !== msg.banner.sub)) {
+      this.showWaveBanner(msg.banner.title, msg.banner.sub);
+    }
+
+    if (msg.sounds && Array.isArray(msg.sounds)) {
+      for (const sName of msg.sounds) {
+        if (this.sound && typeof this.sound[sName] === 'function') {
+          this.sound[sName]();
+        }
+      }
+    }
+
+    if (this.state === 'GAME_OVER' && window.onGameOverCallback && !this._gameOverFired) {
+      this._gameOverFired = true;
+      window.onGameOverCallback({
+        mode: 'versus',
+        wave: this.versusScores.p1 + this.versusScores.p2,
+        score: Math.max(this.versusScores.p1, this.versusScores.p2),
+        versusScores: { ...this.versusScores },
+        winner: this.versusWinner,
+        targetWins: this.versusTargetWins,
+        netRole: 'client'
+      });
+    } else if (this.state === 'PLAYING') {
+      this._gameOverFired = false;
+    }
+  }
+
+  startGame(mode, netRole = null) {
     // 1. Instantly sync freshest configuration from localStorage (0ms latency) & check disk
     if (window.configManager) {
       window.configManager.syncLatest();
     }
 
+    this.netRole = netRole;
+    this._gameOverFired = false;
+    this.pendingSounds = [];
     this.mode = mode;
     this.state = 'PLAYING';
     this.score = 0;
@@ -200,7 +367,7 @@ class Game {
   }
 
   restartGame() {
-    this.startGame(this.mode);
+    this.startGame(this.mode, this.netRole);
   }
 
   pauseGame() {
@@ -221,7 +388,11 @@ class Game {
     }
     this.state = 'MENU';
     this.isVersus = false;
+    this.netRole = null;
     this.sound.stopBgm();
+    if (window.networkManager) {
+      window.networkManager.disconnect();
+    }
   }
 
   // Handle Player Movement (Up, Down, Left, Right)
@@ -242,6 +413,14 @@ class Game {
     }
 
     if (this.state !== 'PLAYING') return;
+
+    // Client Mode: immediately forward input over WebSocket to Host
+    if (this.netRole === 'client') {
+      if (window.networkManager) {
+        window.networkManager.sendInput(dx, dy);
+      }
+      return;
+    }
 
     const p = this.isVersus ? this.players[playerIdx] : this.player;
     if (!p || p.isDead) return;
@@ -583,6 +762,11 @@ class Game {
 
     if (this.state !== 'PLAYING') return;
 
+    // Client Mode: all game simulation is driven by Host via applyRemoteState()
+    if (this.netRole === 'client') {
+      return;
+    }
+
     if (this.hitFreezeTimer > 0) {
       this.hitFreezeTimer -= dt;
       return;
@@ -595,6 +779,7 @@ class Game {
         if (this.versusRoundDelay <= 0) {
           this.startVersusRound();
         }
+        if (this.netRole === 'host') this.broadcastHostState();
         return;
       }
 
@@ -610,10 +795,12 @@ class Game {
               score: Math.max(this.versusScores.p1, this.versusScores.p2),
               versusScores: { ...this.versusScores },
               winner: this.versusWinner,
-              targetWins: this.versusTargetWins
+              targetWins: this.versusTargetWins,
+              netRole: this.netRole
             });
           }
         }
+        if (this.netRole === 'host') this.broadcastHostState();
         return;
       }
 
@@ -654,6 +841,7 @@ class Game {
       const hitPlayers = this.obstacleManager.checkCollisions(this.players);
       if (hitPlayers && hitPlayers.length > 0) {
         this.handleVersusRoundEnd(hitPlayers);
+        if (this.netRole === 'host') this.broadcastHostState();
         return;
       }
 
@@ -682,6 +870,11 @@ class Game {
         if (this.collectibles[i].life <= 0) {
           this.collectibles.splice(i, 1);
         }
+      }
+
+      // 6. Broadcast authoritative state to client (LAN Relay)
+      if (this.netRole === 'host') {
+        this.broadcastHostState();
       }
 
       return;

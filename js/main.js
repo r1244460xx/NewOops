@@ -45,25 +45,112 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   updateMenuBestScores();
 
+  // Versus Modal elements
+  const versusModal = document.getElementById('versus-modal');
+  const btnCloseVersusModal = document.getElementById('btn-close-versus-modal');
+  const btnOptLocal = document.getElementById('btn-opt-local');
+  const btnStartHost = document.getElementById('btn-start-host');
+  const btnStartJoin = document.getElementById('btn-start-join');
+  const btnCopyUrl = document.getElementById('btn-copy-url');
+  const hostShareUrl = document.getElementById('host-share-url');
+  const hostRoomCode = document.getElementById('host-room-code');
+  const joinHostIp = document.getElementById('join-host-ip');
+  const joinRoomCode = document.getElementById('join-room-code');
+
+  function openVersusModal() {
+    if (versusModal) {
+      versusModal.classList.remove('hidden');
+      if (window.networkManager) {
+        window.networkManager.fetchLanIp().then(data => {
+          if (hostShareUrl) {
+            hostShareUrl.value = data.url ? `${data.url}/index.html` : `http://${data.ip}:${data.port}/index.html`;
+          }
+          if (joinHostIp && !joinHostIp.value) {
+            joinHostIp.value = `${data.ip}:${data.port}`;
+          }
+        });
+      }
+    }
+  }
+
+  if (btnCloseVersusModal) {
+    btnCloseVersusModal.addEventListener('click', () => {
+      versusModal.classList.add('hidden');
+    });
+  }
+
+  if (btnCopyUrl) {
+    btnCopyUrl.addEventListener('click', () => {
+      if (hostShareUrl && hostShareUrl.value) {
+        navigator.clipboard.writeText(hostShareUrl.value).then(() => {
+          showToast('📋 網址已複製到剪貼簿！可直接傳給對手');
+        }).catch(() => {
+          hostShareUrl.select();
+          document.execCommand('copy');
+          showToast('📋 網址已複製！');
+        });
+      }
+    });
+  }
+
+  if (btnOptLocal) {
+    btnOptLocal.addEventListener('click', () => {
+      versusModal.classList.add('hidden');
+      startSelectedMode('versus', null);
+    });
+  }
+
+  if (btnStartHost) {
+    btnStartHost.addEventListener('click', () => {
+      const room = (hostRoomCode && hostRoomCode.value) ? hostRoomCode.value.trim() : '1234';
+      if (window.networkManager) {
+        window.networkManager.connect('', 'host', room);
+      }
+      versusModal.classList.add('hidden');
+      startSelectedMode('versus', 'host');
+      showToast('🏠 已建立房間！等待對手加入...');
+    });
+  }
+
+  if (btnStartJoin) {
+    btnStartJoin.addEventListener('click', () => {
+      const targetHost = (joinHostIp && joinHostIp.value) ? joinHostIp.value.trim() : '';
+      const room = (joinRoomCode && joinRoomCode.value) ? joinRoomCode.value.trim() : '1234';
+      if (window.networkManager) {
+        window.networkManager.connect(targetHost, 'client', room);
+      }
+      versusModal.classList.add('hidden');
+      startSelectedMode('versus', 'client');
+      showToast('🔗 正在連線加入對戰...');
+    });
+  }
+
   // 2. Start game on mode card click
   document.querySelectorAll('.mode-card').forEach((card) => {
     card.addEventListener('click', (e) => {
       e.preventDefault();
       const mode = card.dataset.mode;
-      startSelectedMode(mode);
+      if (mode === 'versus') {
+        openVersusModal();
+      } else {
+        startSelectedMode(mode);
+      }
     });
   });
 
-  function startSelectedMode(mode) {
+  function startSelectedMode(mode, netRole = null) {
     menuOverlay.classList.add('hidden');
     gameoverOverlay.classList.add('hidden');
     pauseOverlay.classList.add('hidden');
+    if (versusModal) versusModal.classList.add('hidden');
     gameHud.classList.remove('hidden');
 
     const hudWaveLabel = document.getElementById('hud-wave-label');
     const hudVersusItem = document.getElementById('hud-versus-item');
     const hudScoreItem = document.getElementById('hud-score-item');
     const hudBestItem = document.getElementById('hud-best-item');
+    const hudNetItem = document.getElementById('hud-net-item');
+    const hudNetBadge = document.getElementById('hud-net-badge');
 
     if (hudModeName) {
       hudModeName.textContent = mode.toUpperCase();
@@ -74,8 +161,24 @@ document.addEventListener('DOMContentLoaded', () => {
       if (hudScoreItem) hudScoreItem.classList.add('hidden');
       if (hudBestItem) hudBestItem.classList.add('hidden');
       if (hudWaveLabel) hudWaveLabel.textContent = 'STAGE';
+
+      if (netRole) {
+        if (hudNetItem) hudNetItem.classList.remove('hidden');
+        if (hudNetBadge) {
+          if (netRole === 'host') {
+            hudNetBadge.textContent = '🟢 P1 (房主)';
+            hudNetBadge.className = 'hud-net-badge connected';
+          } else {
+            hudNetBadge.textContent = '🟢 P2 (客機)';
+            hudNetBadge.className = 'hud-net-badge connected';
+          }
+        }
+      } else {
+        if (hudNetItem) hudNetItem.classList.add('hidden');
+      }
     } else {
       if (hudVersusItem) hudVersusItem.classList.add('hidden');
+      if (hudNetItem) hudNetItem.classList.add('hidden');
       if (hudScoreItem) hudScoreItem.classList.remove('hidden');
       if (hudBestItem) hudBestItem.classList.remove('hidden');
       if (hudWaveLabel) hudWaveLabel.textContent = 'LEVEL';
@@ -88,7 +191,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     game.renderer.resize();
-    game.startGame(mode);
+    game.startGame(mode, netRole);
   }
 
   // 3. Settings Toggles
@@ -279,19 +382,37 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (game.state === 'PLAYING') {
       if (game.isVersus) {
-        // Versus Mode: Separate Controls for P1 and P2
-        // Player 1 (Blue): Arrow Keys
-        if (e.key === 'ArrowUp') game.movePlayer(0, 0, -1);
-        else if (e.key === 'ArrowDown') game.movePlayer(0, 0, 1);
-        else if (e.key === 'ArrowLeft') game.movePlayer(0, -1, 0);
-        else if (e.key === 'ArrowRight') game.movePlayer(0, 1, 0);
-        // Player 2 (Red): WASD Keys
-        else if (e.key === 'w' || e.key === 'W') game.movePlayer(1, 0, -1);
-        else if (e.key === 's' || e.key === 'S') game.movePlayer(1, 0, 1);
-        else if (e.key === 'a' || e.key === 'A') game.movePlayer(1, -1, 0);
-        else if (e.key === 'd' || e.key === 'D') game.movePlayer(1, 1, 0);
-        else if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
-          if (btnPauseToggle) btnPauseToggle.click();
+        if (game.netRole === 'client') {
+          // LAN Client Mode (P2 on Computer B): Can use EITHER Arrow keys or WASD!
+          if (['ArrowUp', 'w', 'W'].includes(e.key)) game.movePlayer(0, -1);
+          else if (['ArrowDown', 's', 'S'].includes(e.key)) game.movePlayer(0, 1);
+          else if (['ArrowLeft', 'a', 'A'].includes(e.key)) game.movePlayer(-1, 0);
+          else if (['ArrowRight', 'd', 'D'].includes(e.key)) game.movePlayer(1, 0);
+          else if (['Escape', 'p', 'P'].includes(e.key)) {
+            if (btnPauseToggle) btnPauseToggle.click();
+          }
+        } else if (game.netRole === 'host') {
+          // LAN Host Mode (P1 on Computer A): Controls Blue P1 with Arrows or WASD
+          if (['ArrowUp', 'w', 'W'].includes(e.key)) game.movePlayer(0, 0, -1);
+          else if (['ArrowDown', 's', 'S'].includes(e.key)) game.movePlayer(0, 0, 1);
+          else if (['ArrowLeft', 'a', 'A'].includes(e.key)) game.movePlayer(0, -1, 0);
+          else if (['ArrowRight', 'd', 'D'].includes(e.key)) game.movePlayer(0, 1, 0);
+          else if (['Escape', 'p', 'P'].includes(e.key)) {
+            if (btnPauseToggle) btnPauseToggle.click();
+          }
+        } else {
+          // Local Couch 1v1 Mode (Shared Keyboard): P1 Arrows, P2 WASD
+          if (e.key === 'ArrowUp') game.movePlayer(0, 0, -1);
+          else if (e.key === 'ArrowDown') game.movePlayer(0, 0, 1);
+          else if (e.key === 'ArrowLeft') game.movePlayer(0, -1, 0);
+          else if (e.key === 'ArrowRight') game.movePlayer(0, 1, 0);
+          else if (e.key === 'w' || e.key === 'W') game.movePlayer(1, 0, -1);
+          else if (e.key === 's' || e.key === 'S') game.movePlayer(1, 0, 1);
+          else if (e.key === 'a' || e.key === 'A') game.movePlayer(1, -1, 0);
+          else if (e.key === 'd' || e.key === 'D') game.movePlayer(1, 1, 0);
+          else if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
+            if (btnPauseToggle) btnPauseToggle.click();
+          }
         }
       } else {
         // Single Player Mode: Both Arrow Keys and WASD control Player 1
@@ -328,7 +449,7 @@ document.addEventListener('DOMContentLoaded', () => {
       else if (e.key === '2') startSelectedMode('cannon');
       else if (e.key === '3') startSelectedMode('laser');
       else if (e.key === '4') startSelectedMode('allstar');
-      else if (e.key === '5') startSelectedMode('versus');
+      else if (e.key === '5') openVersusModal();
       else if (e.key === ' ' || e.key === 'Enter') startSelectedMode('rock');
     } else if (game.state === 'GAME_OVER') {
       if (e.key === ' ' || e.key === 'Enter') {

@@ -917,3 +917,202 @@ input:checked + .slider:before {
   opacity: 1;
 }
 
+/* --------------------------------------------------------------------------
+   Versus Lobby Modal & LAN Cards
+   -------------------------------------------------------------------------- */
+.versus-modal-box {
+  max-width: 540px !important;
+  text-align: left;
+  padding: 20px 22px;
+}
+
+.versus-modal-box h2 {
+  font-family: var(--font-display);
+  color: #1c1c1e;
+}
+
+.versus-options-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.versus-opt-card {
+  position: relative;
+  background: #f8f9fa;
+  border: 2px solid #e5e5ea;
+  border-radius: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.18s ease;
+  width: 100%;
+}
+
+.versus-opt-card:hover {
+  border-color: #007aff;
+  background: #f0f7ff;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 122, 255, 0.15);
+}
+
+.opt-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #e5e5ea;
+  color: #3a3a3c;
+  margin-bottom: 6px;
+}
+
+.host-badge {
+  background: rgba(0, 122, 255, 0.15);
+  color: #007aff;
+}
+
+.client-badge {
+  background: rgba(255, 59, 48, 0.15);
+  color: #ff3b30;
+}
+
+.opt-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.opt-icon {
+  font-size: 26px;
+  flex-shrink: 0;
+}
+
+.opt-info {
+  flex: 1;
+}
+
+.opt-title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: #1c1c1e;
+}
+
+.opt-desc {
+  font-size: 12px;
+  color: #636366;
+  line-height: 1.35;
+  margin-top: 2px;
+}
+
+.lan-card {
+  cursor: default;
+  background: #ffffff;
+}
+
+.lan-card:hover {
+  transform: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+#card-lan-host {
+  border-color: rgba(0, 122, 255, 0.35);
+}
+
+#card-lan-join {
+  border-color: rgba(255, 59, 48, 0.35);
+}
+
+.lan-content {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed #e5e5ea;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lan-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.lan-field label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #48484a;
+}
+
+.lan-field input {
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  background: #f4f5f8;
+  border: 1px solid #d1d1d6;
+  border-radius: 6px;
+  outline: none;
+  color: #1c1c1e;
+}
+
+.lan-field input:focus {
+  border-color: #007aff;
+  background: #fff;
+}
+
+.lan-field-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.lan-copy-box {
+  display: flex;
+  gap: 6px;
+}
+
+.lan-copy-box input {
+  flex: 1;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.btn-copy {
+  padding: 6px 12px;
+  background: #e5e5ea;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  color: #1c1c1e;
+  transition: all 0.15s ease;
+}
+
+.btn-copy:hover {
+  background: #007aff;
+  color: #fff;
+}
+
+/* Network Status HUD badge */
+.hud-net-badge {
+  font-size: 12px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.15);
+  color: #34c759;
+  letter-spacing: 0.5px;
+}
+
+.hud-net-badge.connected {
+  color: #34c759;
+}
+
+.hud-net-badge.waiting {
+  color: #ffd60a;
+}
+
+
