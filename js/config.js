@@ -20,7 +20,10 @@ const DEFAULT_GAME_CONFIG = {
   hopDuration: 0.11,
   wavesPerLevel: 5,
   starCooldown: 6,
-  nearMissDistance: 0.95
+  nearMissDistance: 0.95,
+  versusCollisionMode: 'solid',
+  versusTargetWins: 3,
+  versusHazardMode: 'allstar'
 };
 
 const CONFIG_SCHEMA = [
@@ -204,6 +207,47 @@ const CONFIG_SCHEMA = [
     unit: '格',
     placeholder: '0.95',
     desc: '剛離開的格子遭遇道具時觸發擦身閃避加分的距離'
+  },
+
+  // 4. 雙人對戰設定 (1v1 Versus Settings)
+  {
+    key: 'versusCollisionMode',
+    category: '雙人對戰設定 (1v1 Versus Settings)',
+    type: 'select',
+    label: '單位碰撞規則 (Unit Collision Mode)',
+    options: [
+      { value: 'solid', label: '實體卡位 (Solid Block - 一格限一人，搶位阻擋)' },
+      { value: 'ghost', label: '穿透重疊 (Ghost - 兩人可重疊，純比走位)' },
+      { value: 'push', label: '推擠撞擊 (Push & Bump - 踩入對手格將其強推)' }
+    ],
+    placeholder: 'solid',
+    desc: '決定兩位玩家跳至同一個格子時的實體交互行為'
+  },
+  {
+    key: 'versusTargetWins',
+    category: '雙人對戰設定 (1v1 Versus Settings)',
+    type: 'number',
+    label: '對戰獲勝局數 (Target Wins to Crown)',
+    min: 1,
+    max: 10,
+    step: 1,
+    unit: '勝',
+    placeholder: '3',
+    desc: '率先累積達到此勝場局數的玩家獲得整場比賽總冠軍'
+  },
+  {
+    key: 'versusHazardMode',
+    category: '雙人對戰設定 (1v1 Versus Settings)',
+    type: 'select',
+    label: '對戰飛行道具 (Versus Hazard Mode)',
+    options: [
+      { value: 'allstar', label: '全明星大亂鬥 (All-Star - 巨石+砲彈+雷射)' },
+      { value: 'rock', label: '慢速巨石 (Rock - 考驗安全卡位)' },
+      { value: 'cannon', label: '中速砲彈 (Cannon - 緊湊高速閃避)' },
+      { value: 'laser', label: '快速雷射 (Laser - 極限預判紅線)' }
+    ],
+    placeholder: 'allstar',
+    desc: '雙人對決時預設出現的飛行道具種類'
   }
 ];
 
@@ -305,9 +349,13 @@ class ConfigManager {
     for (const item of CONFIG_SCHEMA) {
       const key = item.key;
       if (source[key] !== undefined) {
-        const val = parseFloat(source[key]);
-        if (!isNaN(val)) {
-          this.config[key] = val;
+        if (item.type === 'select') {
+          this.config[key] = String(source[key]);
+        } else {
+          const val = parseFloat(source[key]);
+          if (!isNaN(val)) {
+            this.config[key] = val;
+          }
         }
       }
     }
@@ -320,18 +368,25 @@ class ConfigManager {
   // Update a parameter: immediately updates memory, localStorage, broadcasts to game,
   // and triggers debounced auto-persist to disk.
   set(key, value) {
-    const num = parseFloat(value);
-    if (!isNaN(num)) {
-      this.config[key] = num;
-      this.hasLocalCustomizations = true;
-      const ts = Date.now();
-      this.saveLocal(ts);
-      this.notify();
-      this.broadcast();
-
-      // Automatically persist to disk without requiring manual button click!
-      this.triggerAutoSave();
+    const item = CONFIG_SCHEMA.find((s) => s.key === key);
+    let finalVal = value;
+    if (!item || item.type !== 'select') {
+      const num = parseFloat(value);
+      if (isNaN(num)) return;
+      finalVal = num;
+    } else {
+      finalVal = String(value);
     }
+
+    this.config[key] = finalVal;
+    this.hasLocalCustomizations = true;
+    const ts = Date.now();
+    this.saveLocal(ts);
+    this.notify();
+    this.broadcast();
+
+    // Automatically persist to disk without requiring manual button click!
+    this.triggerAutoSave();
   }
 
   triggerAutoSave() {

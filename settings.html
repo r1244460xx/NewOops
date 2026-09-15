@@ -133,6 +133,26 @@
       to { opacity: 1; }
     }
 
+    .config-select-input {
+      width: 100%;
+      padding: 10px 14px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #1c1c1e;
+      background: #f2f2f7;
+      border: 2px solid #e5e5ea;
+      border-radius: 8px;
+      outline: none;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .config-select-input:focus {
+      border-color: #007aff;
+      background: #ffffff;
+      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
+    }
+
     /* Status notification */
     #status-banner {
       display: none;
@@ -238,7 +258,7 @@
         info.innerHTML = `
           <div>
             <span class="config-item-label">${item.label}</span>
-            <span class="config-item-unit">(${item.unit})</span>
+            ${item.unit ? `<span class="config-item-unit">(${item.unit})</span>` : ''}
           </div>
         `;
 
@@ -251,50 +271,67 @@
 
         const currentVal = window.configManager.get(item.key);
 
-        // Slider
-        const slider = document.createElement('input');
-        slider.type = 'range';
-        slider.className = 'config-slider';
-        slider.min = item.min;
-        slider.max = item.max;
-        slider.step = item.step;
-        slider.value = currentVal;
+        if (item.type === 'select') {
+          const select = document.createElement('select');
+          select.className = 'config-select-input';
+          item.options.forEach((opt) => {
+            const opEl = document.createElement('option');
+            opEl.value = opt.value;
+            opEl.textContent = opt.label;
+            if (String(opt.value) === String(currentVal)) opEl.selected = true;
+            select.appendChild(opEl);
+          });
+          select.addEventListener('change', () => {
+            window.configManager.set(item.key, select.value);
+          });
+          controlRow.appendChild(select);
+          inputRefs[item.key] = { select, isSelect: true };
+        } else {
+          // Slider
+          const slider = document.createElement('input');
+          slider.type = 'range';
+          slider.className = 'config-slider';
+          slider.min = item.min;
+          slider.max = item.max;
+          slider.step = item.step;
+          slider.value = currentVal;
 
-        // Number Input (only numbers)
-        const numInput = document.createElement('input');
-        numInput.type = 'number';
-        numInput.className = 'config-num-input';
-        numInput.placeholder = item.placeholder;
-        numInput.min = item.min;
-        numInput.max = item.max;
-        numInput.step = item.step;
-        numInput.value = currentVal;
+          // Number Input (only numbers)
+          const numInput = document.createElement('input');
+          numInput.type = 'number';
+          numInput.className = 'config-num-input';
+          numInput.placeholder = item.placeholder;
+          numInput.min = item.min;
+          numInput.max = item.max;
+          numInput.step = item.step;
+          numInput.value = currentVal;
 
-        // Sync Slider -> Input
-        slider.addEventListener('input', () => {
-          numInput.value = slider.value;
-          window.configManager.set(item.key, slider.value);
-        });
+          // Sync Slider -> Input
+          slider.addEventListener('input', () => {
+            numInput.value = slider.value;
+            window.configManager.set(item.key, slider.value);
+          });
 
-        // Sync Input -> Slider
-        numInput.addEventListener('input', () => {
-          const val = parseFloat(numInput.value);
-          if (!isNaN(val)) {
-            slider.value = val;
-            window.configManager.set(item.key, val);
-          }
-        });
+          // Sync Input -> Slider
+          numInput.addEventListener('input', () => {
+            const val = parseFloat(numInput.value);
+            if (!isNaN(val)) {
+              slider.value = val;
+              window.configManager.set(item.key, val);
+            }
+          });
 
-        controlRow.appendChild(slider);
-        controlRow.appendChild(numInput);
+          controlRow.appendChild(slider);
+          controlRow.appendChild(numInput);
+
+          inputRefs[item.key] = { slider, numInput, isSelect: false };
+        }
 
         card.appendChild(info);
         card.appendChild(desc);
         card.appendChild(controlRow);
 
         container.appendChild(card);
-
-        inputRefs[item.key] = { slider, numInput };
       });
 
       function refreshUI() {
@@ -302,8 +339,12 @@
           const refs = inputRefs[item.key];
           if (refs) {
             const val = window.configManager.get(item.key);
-            refs.slider.value = val;
-            refs.numInput.value = val;
+            if (refs.isSelect) {
+              refs.select.value = val;
+            } else {
+              refs.slider.value = val;
+              refs.numInput.value = val;
+            }
           }
         });
       }

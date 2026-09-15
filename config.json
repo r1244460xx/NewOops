@@ -14,5 +14,8 @@
   "hopDuration": 0.11,
   "wavesPerLevel": 5,
   "starCooldown": 6,
-  "nearMissDistance": 0.95
+  "nearMissDistance": 0.95,
+  "versusCollisionMode": "solid",
+  "versusTargetWins": 3,
+  "versusHazardMode": "allstar"
 }
