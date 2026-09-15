@@ -17,15 +17,19 @@
         <span class="hud-label">MODE</span>
         <span id="hud-mode-name" class="hud-val">ROCK</span>
       </div>
-      <div class="hud-item hud-wave">
-        <span class="hud-label">LEVEL</span>
+      <div class="hud-item hud-wave" id="hud-wave-item">
+        <span class="hud-label" id="hud-wave-label">LEVEL</span>
         <span id="hud-wave-val" class="hud-val">1</span>
       </div>
-      <div class="hud-item hud-score">
+      <div class="hud-item hud-versus hidden" id="hud-versus-item">
+        <span class="hud-label" id="hud-versus-label">MATCH</span>
+        <span id="hud-versus-val" class="hud-val"><span style="color:#007aff">P1: 0</span> - <span style="color:#ff3b30">P2: 0</span></span>
+      </div>
+      <div class="hud-item hud-score" id="hud-score-item">
         <span class="hud-label">SCORE</span>
         <span id="hud-score-val" class="hud-val">0</span>
       </div>
-      <div class="hud-item hud-best">
+      <div class="hud-item hud-best" id="hud-best-item">
         <span class="hud-label">BEST</span>
         <span id="hud-best-val" class="hud-val">0</span>
       </div>
@@ -108,6 +112,16 @@
             </div>
             <div class="mode-high" id="best-allstar">BEST: 0</div>
           </button>
+
+          <!-- Mode 5: 1v1 Versus Mode -->
+          <button class="mode-card versus-card" data-mode="versus">
+            <div class="mode-icon">⚔️</div>
+            <div class="mode-info">
+              <div class="mode-title">雙人同機對戰 (1v1 VERSUS)</div>
+              <div class="mode-desc">同台電腦雙人極限對抗！P1 方向鍵 ⚔️ P2 WASD，心態走位大比拼。</div>
+            </div>
+            <div class="mode-high" id="best-versus">1v1</div>
+          </button>
         </div>
 
         <!-- Extra Settings -->
@@ -127,7 +141,8 @@
 
         <!-- Controls Guide -->
         <div class="menu-guide">
-          <span>鍵盤：<strong>↑ ↓ ← →</strong> 或 <strong>W A S D</strong></span>
+          <span>單人操作：<strong>↑ ↓ ← →</strong> 或 <strong>W A S D</strong></span>
+          <span>雙人對戰：<strong>P1 藍 [↑ ↓ ← →]</strong> ⚔️ <strong>P2 紅 [W A S D]</strong></span>
           <span>手機：<strong>滑動螢幕 (Swipe)</strong> 或 <strong>點擊虛擬鍵</strong></span>
         </div>
       </div>
@@ -148,7 +163,7 @@
     <!-- GAME OVER MODAL -->
     <div id="gameover-overlay" class="modal-overlay hidden">
       <div class="modal-box gameover-box">
-        <div class="oops-comic-bubble">OOPS!!</div>
+        <div class="oops-comic-bubble" id="gameover-bubble">OOPS!!</div>
         <h2 id="gameover-title">YOU CRASHED!</h2>
         
         <div class="result-stats">
@@ -156,18 +171,22 @@
             <span class="stat-label">模式：</span>
             <span id="result-mode" class="stat-val">ROCK</span>
           </div>
-          <div class="stat-row">
+          <div class="stat-row" id="row-wave">
             <span class="stat-label">生存等級：</span>
             <span id="result-wave" class="stat-val">Level 5</span>
           </div>
-          <div class="stat-row">
+          <div class="stat-row" id="row-score">
             <span class="stat-label">最終分數：</span>
             <span id="result-score" class="stat-val">1250</span>
+          </div>
+          <div class="stat-row" id="row-versus-score" style="display:none;">
+            <span class="stat-label">對戰勝局：</span>
+            <span id="result-versus-score" class="stat-val">3 - 1</span>
           </div>
           <div class="stat-row new-record-row hidden" id="new-record-badge">
             🏆 新紀錄 HIGH SCORE!
           </div>
-          <div class="stat-row">
+          <div class="stat-row" id="row-best">
             <span class="stat-label">歷史最佳：</span>
             <span id="result-best" class="stat-val">2400</span>
           </div>

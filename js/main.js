@@ -30,7 +30,8 @@ document.addEventListener('DOMContentLoaded', () => {
     rock: 'ROCK (慢速巨石)',
     cannon: 'CANNON (中速砲彈)',
     laser: 'LASER (快速雷射)',
-    allstar: 'ALL-STAR (全明星)'
+    allstar: 'ALL-STAR (全明星)',
+    versus: '1v1 VERSUS (雙人對戰)'
   };
 
   // 1. Refresh best scores on main menu cards
@@ -59,11 +60,28 @@ document.addEventListener('DOMContentLoaded', () => {
     pauseOverlay.classList.add('hidden');
     gameHud.classList.remove('hidden');
 
+    const hudWaveLabel = document.getElementById('hud-wave-label');
+    const hudVersusItem = document.getElementById('hud-versus-item');
+    const hudScoreItem = document.getElementById('hud-score-item');
+    const hudBestItem = document.getElementById('hud-best-item');
+
     if (hudModeName) {
       hudModeName.textContent = mode.toUpperCase();
     }
 
-    if (toggleDpad && toggleDpad.checked) {
+    if (mode === 'versus') {
+      if (hudVersusItem) hudVersusItem.classList.remove('hidden');
+      if (hudScoreItem) hudScoreItem.classList.add('hidden');
+      if (hudBestItem) hudBestItem.classList.add('hidden');
+      if (hudWaveLabel) hudWaveLabel.textContent = 'STAGE';
+    } else {
+      if (hudVersusItem) hudVersusItem.classList.add('hidden');
+      if (hudScoreItem) hudScoreItem.classList.remove('hidden');
+      if (hudBestItem) hudBestItem.classList.remove('hidden');
+      if (hudWaveLabel) hudWaveLabel.textContent = 'LEVEL';
+    }
+
+    if (toggleDpad && toggleDpad.checked && mode !== 'versus') {
       touchControls.classList.remove('hidden');
     } else {
       touchControls.classList.add('hidden');
@@ -82,7 +100,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (toggleDpad) {
     toggleDpad.addEventListener('change', (e) => {
-      if (e.target.checked && game.state === 'PLAYING') {
+      if (e.target.checked && game.state === 'PLAYING' && !game.isVersus) {
         touchControls.classList.remove('hidden');
       } else {
         touchControls.classList.add('hidden');
@@ -144,17 +162,48 @@ document.addEventListener('DOMContentLoaded', () => {
     const resultScore = document.getElementById('result-score');
     const resultBest = document.getElementById('result-best');
     const newRecordBadge = document.getElementById('new-record-badge');
+    const gameoverTitle = document.getElementById('gameover-title');
+    const gameoverBubble = document.getElementById('gameover-bubble');
+    const rowWave = document.getElementById('row-wave');
+    const rowScore = document.getElementById('row-score');
+    const rowBest = document.getElementById('row-best');
+    const rowVersusScore = document.getElementById('row-versus-score');
+    const resultVersusScore = document.getElementById('result-versus-score');
 
-    if (resultMode) resultMode.textContent = modeDisplayNames[result.mode] || result.mode;
-    if (resultWave) resultWave.textContent = `Level ${result.wave}`;
-    if (resultScore) resultScore.textContent = result.score;
-    if (resultBest) resultBest.textContent = result.best;
+    if (result.mode === 'versus') {
+      if (gameoverBubble) gameoverBubble.textContent = 'VICTORY!!';
+      const winnerName = result.winner === 'p1' ? 'P1 藍色 (PLAYER 1)' : 'P2 紅色 (PLAYER 2)';
+      const winnerColor = result.winner === 'p1' ? '#007aff' : '#ff3b30';
+      if (gameoverTitle) {
+        gameoverTitle.innerHTML = `<span style="color:${winnerColor}; font-weight:900;">🏆 ${winnerName} 獲得大勝！</span>`;
+      }
+      if (resultMode) resultMode.textContent = '1v1 VERSUS (雙人對戰)';
+      if (rowVersusScore) rowVersusScore.style.display = 'flex';
+      if (resultVersusScore) {
+        resultVersusScore.innerHTML = `<strong style="color:#007aff;">P1 [${result.versusScores.p1}]</strong> - <strong style="color:#ff3b30;">[${result.versusScores.p2}] P2</strong> (目標先達 ${result.targetWins} 勝)`;
+      }
+      if (rowWave) rowWave.style.display = 'none';
+      if (rowScore) rowScore.style.display = 'none';
+      if (rowBest) rowBest.style.display = 'none';
+      if (newRecordBadge) newRecordBadge.classList.add('hidden');
+    } else {
+      if (gameoverBubble) gameoverBubble.textContent = 'OOPS!!';
+      if (gameoverTitle) gameoverTitle.textContent = 'YOU CRASHED!';
+      if (resultMode) resultMode.textContent = modeDisplayNames[result.mode] || result.mode;
+      if (rowWave) rowWave.style.display = 'flex';
+      if (rowScore) rowScore.style.display = 'flex';
+      if (rowBest) rowBest.style.display = 'flex';
+      if (rowVersusScore) rowVersusScore.style.display = 'none';
+      if (resultWave) resultWave.textContent = `Level ${result.wave}`;
+      if (resultScore) resultScore.textContent = result.score;
+      if (resultBest) resultBest.textContent = result.best;
 
-    if (newRecordBadge) {
-      if (result.isNewBest) {
-        newRecordBadge.classList.remove('hidden');
-      } else {
-        newRecordBadge.classList.add('hidden');
+      if (newRecordBadge) {
+        if (result.isNewBest) {
+          newRecordBadge.classList.remove('hidden');
+        } else {
+          newRecordBadge.classList.add('hidden');
+        }
       }
     }
 
@@ -208,7 +257,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // 7. Keyboard Controls (Arrows + WASD + Hotkeys)
+  // 7. Keyboard Controls (Arrows for P1 / WASD for P2 in Versus; Both in Single Player)
   window.addEventListener('keydown', (e) => {
     // If focused on an input element, don't hijack keys
     if (document.activeElement && document.activeElement.tagName === 'INPUT') {
@@ -229,38 +278,57 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     if (game.state === 'PLAYING') {
-      switch (e.key) {
-        case 'ArrowUp':
-        case 'w':
-        case 'W':
-          game.movePlayer(0, -1);
-          break;
-        case 'ArrowDown':
-        case 's':
-        case 'S':
-          game.movePlayer(0, 1);
-          break;
-        case 'ArrowLeft':
-        case 'a':
-        case 'A':
-          game.movePlayer(-1, 0);
-          break;
-        case 'ArrowRight':
-        case 'd':
-        case 'D':
-          game.movePlayer(1, 0);
-          break;
-        case 'Escape':
-        case 'p':
-        case 'P':
+      if (game.isVersus) {
+        // Versus Mode: Separate Controls for P1 and P2
+        // Player 1 (Blue): Arrow Keys
+        if (e.key === 'ArrowUp') game.movePlayer(0, 0, -1);
+        else if (e.key === 'ArrowDown') game.movePlayer(0, 0, 1);
+        else if (e.key === 'ArrowLeft') game.movePlayer(0, -1, 0);
+        else if (e.key === 'ArrowRight') game.movePlayer(0, 1, 0);
+        // Player 2 (Red): WASD Keys
+        else if (e.key === 'w' || e.key === 'W') game.movePlayer(1, 0, -1);
+        else if (e.key === 's' || e.key === 'S') game.movePlayer(1, 0, 1);
+        else if (e.key === 'a' || e.key === 'A') game.movePlayer(1, -1, 0);
+        else if (e.key === 'd' || e.key === 'D') game.movePlayer(1, 1, 0);
+        else if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
           if (btnPauseToggle) btnPauseToggle.click();
-          break;
+        }
+      } else {
+        // Single Player Mode: Both Arrow Keys and WASD control Player 1
+        switch (e.key) {
+          case 'ArrowUp':
+          case 'w':
+          case 'W':
+            game.movePlayer(0, -1);
+            break;
+          case 'ArrowDown':
+          case 's':
+          case 'S':
+            game.movePlayer(0, 1);
+            break;
+          case 'ArrowLeft':
+          case 'a':
+          case 'A':
+            game.movePlayer(-1, 0);
+            break;
+          case 'ArrowRight':
+          case 'd':
+          case 'D':
+            game.movePlayer(1, 0);
+            break;
+          case 'Escape':
+          case 'p':
+          case 'P':
+            if (btnPauseToggle) btnPauseToggle.click();
+            break;
+        }
       }
     } else if (game.state === 'MENU') {
       if (e.key === '1') startSelectedMode('rock');
       else if (e.key === '2') startSelectedMode('cannon');
       else if (e.key === '3') startSelectedMode('laser');
       else if (e.key === '4') startSelectedMode('allstar');
+      else if (e.key === '5') startSelectedMode('versus');
       else if (e.key === ' ' || e.key === 'Enter') startSelectedMode('rock');
     } else if (game.state === 'GAME_OVER') {
       if (e.key === ' ' || e.key === 'Enter') {
