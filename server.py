@@ -99,6 +99,15 @@ class WSClientWrapper:
             except Exception:
                 pass
 
+    def send_raw_text(self, text):
+        frame = encode_ws_frame(text)
+        with self.lock:
+            try:
+                self.wfile.write(frame)
+                self.wfile.flush()
+            except Exception:
+                pass
+
 class RoomManager:
     def __init__(self):
         self.lock = threading.Lock()
@@ -138,6 +147,18 @@ class RoomManager:
                 print(f"[WebSocket] Client (P2) joined room '{room_code}'")
 
     def handle_message(self, client, data_str):
+        # Ultra-fast zero-deserialization relay for state snapshots and input packets
+        if getattr(client, "room_code", None) and '"join"' not in data_str and '"ping"' not in data_str:
+            with self.lock:
+                room = self.rooms.get(client.room_code)
+                if room:
+                    if client.role == "client" and room.get("host"):
+                        room["host"].send_raw_text(data_str)
+                        return
+                    elif client.role == "host" and room.get("client"):
+                        room["client"].send_raw_text(data_str)
+                        return
+
         try:
             msg = json.loads(data_str)
         except Exception:
@@ -156,9 +177,9 @@ class RoomManager:
                 room = self.rooms.get(getattr(client, "room_code", None))
                 if room:
                     if client.role == "client" and room.get("host"):
-                        room["host"].send_json(msg)
+                        room["host"].send_raw_text(data_str)
                     elif client.role == "host" and room.get("client"):
-                        room["client"].send_json(msg)
+                        room["client"].send_raw_text(data_str)
 
     def remove_client(self, client):
         with self.lock:

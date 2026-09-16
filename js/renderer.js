@@ -60,6 +60,10 @@ class GameRenderer {
     // Background animation phase
     this.bgTime = 0;
 
+    // Offscreen Canvas Cache for 6x6 Platform
+    this.platformCanvas = null;
+    this.platformCtx = null;
+
     this.resize();
     if (typeof window !== 'undefined' && window.addEventListener) {
       window.addEventListener('resize', () => this.resize());
@@ -98,6 +102,75 @@ class GameRenderer {
     this.boardHeight = this.tileSize * this.gridSize;
     this.boardOriginX = Math.floor((this.viewWidth - this.boardWidth) / 2);
     this.boardOriginY = Math.floor((this.viewHeight - this.boardHeight) / 2 + 8);
+
+    // Pre-render static platform once into offscreen canvas
+    this.preRenderPlatform();
+  }
+
+  preRenderPlatform() {
+    if (!this.platformCanvas) {
+      this.platformCanvas = document.createElement('canvas');
+      this.platformCtx = this.platformCanvas.getContext('2d');
+    }
+    this.platformCanvas.width = this.canvas.width;
+    this.platformCanvas.height = this.canvas.height;
+    const ctx = this.platformCtx;
+    if (!ctx) return;
+
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.clearRect(0, 0, this.viewWidth, this.viewHeight);
+
+    const ox = this.boardOriginX;
+    const oy = this.boardOriginY;
+    const bw = this.boardWidth;
+    const bh = this.boardHeight;
+    const depth = 16;
+
+    ctx.save();
+
+    // 1. Ground Drop Shadow under platform
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.48)';
+    drawRoundedRect(ctx, ox - 8, oy + depth + 6, bw + 16, bh + 12, 16);
+    ctx.fill();
+
+    // 2. 3D Platform Side Bevel
+    ctx.fillStyle = '#414b5c';
+    drawRoundedRect(ctx, ox - 6, oy + bh - 4, bw + 12, depth + 8, [0, 0, 12, 12]);
+    ctx.fill();
+
+    ctx.fillStyle = '#2b3341';
+    ctx.fillRect(ox - 6, oy + bh + depth, bw + 12, 4);
+
+    // 3. Platform Top Border Frame
+    ctx.fillStyle = '#64748b';
+    drawRoundedRect(ctx, ox - 6, oy - 6, bw + 12, bh + 12, 12);
+    ctx.fill();
+
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillRect(ox - 4, oy - 4, bw + 8, bh + 8);
+
+    // 4. 6x6 Checkerboard Tiles
+    for (let r = 0; r < this.gridSize; r++) {
+      for (let c = 0; c < this.gridSize; c++) {
+        const tx = ox + c * this.tileSize;
+        const ty = oy + r * this.tileSize;
+        const isEven = (r + c) % 2 === 0;
+
+        ctx.fillStyle = isEven ? '#f8fafc' : '#e2e8f0';
+        ctx.fillRect(tx, ty, this.tileSize, this.tileSize);
+
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(tx + 1, ty + 1, this.tileSize - 2, this.tileSize - 2);
+      }
+    }
+
+    // Outer border stroke
+    ctx.strokeStyle = '#94a3b8';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(ox, oy, bw, bh);
+
+    ctx.restore();
   }
 
   // Convert grid coordinates (col, row: 0..5) to screen pixels
@@ -139,7 +212,7 @@ class GameRenderer {
       this.shakeOffsetY = 0;
     }
 
-    // Update particles
+    // Update particles (O(1) swap-and-pop removal)
     for (let i = this.particles.length - 1; i >= 0; i--) {
       const p = this.particles[i];
       p.x += p.vx * dt;
@@ -149,11 +222,12 @@ class GameRenderer {
       if (p.gravity) p.vy += p.gravity * dt;
       if (p.rotation !== undefined) p.rotation += (p.vRot || 2) * dt;
       if (p.life <= 0) {
-        this.particles.splice(i, 1);
+        this.particles[i] = this.particles[this.particles.length - 1];
+        this.particles.pop();
       }
     }
 
-    // Update floating texts
+    // Update floating texts (O(1) swap-and-pop removal)
     for (let i = this.floatingTexts.length - 1; i >= 0; i--) {
       const t = this.floatingTexts[i];
       t.y -= 45 * dt;
@@ -161,7 +235,8 @@ class GameRenderer {
       t.scale = 1 + Math.sin((1 - t.life / t.maxLife) * Math.PI) * 0.2;
       t.alpha = Math.max(0, t.life / t.maxLife);
       if (t.life <= 0) {
-        this.floatingTexts.splice(i, 1);
+        this.floatingTexts[i] = this.floatingTexts[this.floatingTexts.length - 1];
+        this.floatingTexts.pop();
       }
     }
   }
@@ -237,10 +312,21 @@ class GameRenderer {
     // 6. Player (Mr. Oops / 1v1 Versus Players)
     if (player) {
       if (Array.isArray(player)) {
-        // Depth-sort players so the player standing lower on the board renders on top
-        const sortedPlayers = [...player].sort((a, b) => (a.animY || 0) - (b.animY || 0));
-        for (const p of sortedPlayers) {
-          this.drawPlayer(p, obstacles);
+        // Zero-allocation depth sorting for 2 players
+        if (player.length === 2) {
+          const p0 = player[0];
+          const p1 = player[1];
+          if ((p0.animY || 0) <= (p1.animY || 0)) {
+            this.drawPlayer(p0, obstacles);
+            this.drawPlayer(p1, obstacles);
+          } else {
+            this.drawPlayer(p1, obstacles);
+            this.drawPlayer(p0, obstacles);
+          }
+        } else {
+          for (let i = 0; i < player.length; i++) {
+            this.drawPlayer(player[i], obstacles);
+          }
         }
       } else {
         this.drawPlayer(player, obstacles);
@@ -286,79 +372,29 @@ class GameRenderer {
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, w, h);
 
-    // Grid background accents
+    // Grid background accents (Batched into a single stroke call)
     ctx.save();
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.035)';
     ctx.lineWidth = 1;
     const offset = (this.bgTime * 15) % 40;
+    ctx.beginPath();
     for (let x = -40; x < w + 40; x += 40) {
-      ctx.beginPath();
       ctx.moveTo(x + offset, 0);
       ctx.lineTo(x + offset, h);
-      ctx.stroke();
     }
     for (let y = -40; y < h + 40; y += 40) {
-      ctx.beginPath();
       ctx.moveTo(0, y + offset);
       ctx.lineTo(w, y + offset);
-      ctx.stroke();
     }
+    ctx.stroke();
     ctx.restore();
   }
 
   drawPlatform() {
-    const ctx = this.ctx;
-    const ox = this.boardOriginX;
-    const oy = this.boardOriginY;
-    const bw = this.boardWidth;
-    const bh = this.boardHeight;
-    const depth = 16;
-
-    ctx.save();
-
-    // 1. Ground Drop Shadow under platform
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.48)';
-    drawRoundedRect(ctx, ox - 8, oy + depth + 6, bw + 16, bh + 12, 16);
-    ctx.fill();
-
-    // 2. 3D Platform Side Bevel
-    ctx.fillStyle = '#414b5c';
-    drawRoundedRect(ctx, ox - 6, oy + bh - 4, bw + 12, depth + 8, [0, 0, 12, 12]);
-    ctx.fill();
-
-    ctx.fillStyle = '#2b3341';
-    ctx.fillRect(ox - 6, oy + bh + depth, bw + 12, 4);
-
-    // 3. Platform Top Border Frame
-    ctx.fillStyle = '#64748b';
-    drawRoundedRect(ctx, ox - 6, oy - 6, bw + 12, bh + 12, 12);
-    ctx.fill();
-
-    ctx.fillStyle = '#cbd5e1';
-    ctx.fillRect(ox - 4, oy - 4, bw + 8, bh + 8);
-
-    // 4. 6x6 Checkerboard Tiles
-    for (let r = 0; r < this.gridSize; r++) {
-      for (let c = 0; c < this.gridSize; c++) {
-        const tx = ox + c * this.tileSize;
-        const ty = oy + r * this.tileSize;
-        const isEven = (r + c) % 2 === 0;
-
-        ctx.fillStyle = isEven ? '#f8fafc' : '#e2e8f0';
-        ctx.fillRect(tx, ty, this.tileSize, this.tileSize);
-
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.65)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(tx + 1, ty + 1, this.tileSize - 2, this.tileSize - 2);
-      }
+    // Ultra-fast single drawImage call from pre-rendered offscreen canvas cache
+    if (this.platformCanvas) {
+      this.ctx.drawImage(this.platformCanvas, 0, 0, this.viewWidth, this.viewHeight);
     }
-
-    // Outer border stroke
-    ctx.strokeStyle = '#94a3b8';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(ox, oy, bw, bh);
-
-    ctx.restore();
   }
 
   drawWarnings(warnings) {

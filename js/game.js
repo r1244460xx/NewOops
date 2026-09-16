@@ -79,6 +79,23 @@ class Game {
     // Timing loop
     this.lastTime = 0;
 
+    // DOM Element Caching & Dirty Checking
+    this.domElements = {
+      score: null,
+      wave: null,
+      best: null,
+      versusVal: null
+    };
+    this.lastRenderedScore = -1;
+    this.lastRenderedWave = -1;
+    this.lastRenderedBest = -1;
+    this.lastVersusP1 = -1;
+    this.lastVersusP2 = -1;
+
+    // 30 Hz Network Broadcast Throttling (33ms tickrate for state snapshots)
+    this.netBroadcastTimer = 0;
+    this.netBroadcastInterval = 1 / 30;
+
     this.loadHighScores();
 
     // Start animation loop
@@ -521,8 +538,13 @@ class Game {
   }
 
   updateVersusHud() {
-    const valEl = document.getElementById('hud-versus-val');
-    if (valEl) {
+    if (!this.domElements.versusVal) {
+      this.domElements.versusVal = document.getElementById('hud-versus-val');
+    }
+    const valEl = this.domElements.versusVal;
+    if (valEl && (this.lastVersusP1 !== this.versusScores.p1 || this.lastVersusP2 !== this.versusScores.p2)) {
+      this.lastVersusP1 = this.versusScores.p1;
+      this.lastVersusP2 = this.versusScores.p2;
       valEl.innerHTML = `<span style="color:#007aff; font-weight:900;">P1: ${this.versusScores.p1}</span> <span style="color:#8e8e93;">-</span> <span style="color:#ff3b30; font-weight:900;">P2: ${this.versusScores.p2}</span>`;
     }
   }
@@ -846,11 +868,13 @@ class Game {
 
   checkNearMiss(prevCol, prevRow, player) {
     const nearDist = window.configManager ? window.configManager.get('nearMissDistance') : 0.95;
+    const nearDistSq = nearDist * nearDist;
     let nearMiss = false;
     for (const obs of this.obstacleManager.obstacles) {
       if (obs.type === 'rock' || obs.type === 'cannon') {
-        const dist = Math.hypot(obs.x - prevCol, obs.y - prevRow);
-        if (dist < nearDist) {
+        const dx = obs.x - prevCol;
+        const dy = obs.y - prevRow;
+        if (dx * dx + dy * dy < nearDistSq) {
           nearMiss = true;
           break;
         }
@@ -1213,9 +1237,13 @@ class Game {
         }
       }
 
-      // 6. Broadcast authoritative state to client (LAN Relay)
+      // 6. Broadcast authoritative state to client (LAN Relay throttled to 30 Hz)
       if (this.netRole === 'host') {
-        this.broadcastHostState();
+        this.netBroadcastTimer += dt;
+        if (this.netBroadcastTimer >= this.netBroadcastInterval) {
+          this.netBroadcastTimer = 0;
+          this.broadcastHostState();
+        }
       }
 
       return;
@@ -1330,16 +1358,30 @@ class Game {
 
     if (this.state === 'PLAYING') {
       if (this.isVersus) {
-        const waveEl = document.getElementById('hud-wave-val');
-        if (waveEl) waveEl.textContent = this.wave;
+        if (!this.domElements.wave) this.domElements.wave = document.getElementById('hud-wave-val');
+        if (this.domElements.wave && this.lastRenderedWave !== this.wave) {
+          this.domElements.wave.textContent = this.wave;
+          this.lastRenderedWave = this.wave;
+        }
         this.updateVersusHud();
       } else {
-        const scoreEl = document.getElementById('hud-score-val');
-        const waveEl = document.getElementById('hud-wave-val');
-        const bestEl = document.getElementById('hud-best-val');
-        if (scoreEl) scoreEl.textContent = this.score;
-        if (waveEl) waveEl.textContent = this.wave;
-        if (bestEl) bestEl.textContent = Math.max(this.score, this.getBestScore(this.mode));
+        if (!this.domElements.score) this.domElements.score = document.getElementById('hud-score-val');
+        if (!this.domElements.wave) this.domElements.wave = document.getElementById('hud-wave-val');
+        if (!this.domElements.best) this.domElements.best = document.getElementById('hud-best-val');
+
+        if (this.domElements.score && this.lastRenderedScore !== this.score) {
+          this.domElements.score.textContent = this.score;
+          this.lastRenderedScore = this.score;
+        }
+        if (this.domElements.wave && this.lastRenderedWave !== this.wave) {
+          this.domElements.wave.textContent = this.wave;
+          this.lastRenderedWave = this.wave;
+        }
+        const best = Math.max(this.score, this.getBestScore(this.mode));
+        if (this.domElements.best && this.lastRenderedBest !== best) {
+          this.domElements.best.textContent = best;
+          this.lastRenderedBest = best;
+        }
       }
     }
 

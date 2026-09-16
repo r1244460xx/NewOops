@@ -474,15 +474,15 @@ class ObstacleManager {
       if (obs.type === 'rock') {
         const dx = obs.x - px;
         const dy = obs.y - py;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 0.7) {
+        // 0.7 * 0.7 = 0.49 (eliminate Math.sqrt)
+        if (dx * dx + dy * dy < 0.49) {
           return true;
         }
       } else if (obs.type === 'cannon') {
         const dx = obs.x - px;
         const dy = obs.y - py;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < 0.62) {
+        // 0.62 * 0.62 = 0.3844 (eliminate Math.sqrt)
+        if (dx * dx + dy * dy < 0.3844) {
           return true;
         }
       } else if (obs.type === 'laser') {
@@ -513,8 +513,10 @@ class ObstacleManager {
 
     for (const obs of this.obstacles) {
       if (obs.type === 'rock' || obs.type === 'cannon') {
-        const dist = Math.hypot(obs.x - px, obs.y - py);
-        if (dist < 1.8) return true;
+        const dx = obs.x - px;
+        const dy = obs.y - py;
+        // 1.8 * 1.8 = 3.24 (eliminate Math.hypot)
+        if (dx * dx + dy * dy < 3.24) return true;
       }
     }
 
