@@ -813,11 +813,12 @@ class Game {
       return;
     }
 
-    // Check momentum continuity before resolving move:
-    // Momentum is strictly a Versus Mode mechanic!
-    const isSameStraight = Boolean(this.isVersus && p.momentumDir && p.momentumDir.dx === dx && p.momentumDir.dy === dy && p.momentumTimer > 0);
+    // Check momentum continuity before resolving move (applies to all modes):
+    // Momentum requires moving in the EXACT same straight direction within momentumWindow.
+    // Turning 90 degrees (直角) or reversing breaks momentum!
+    const isSameStraight = Boolean(p.momentumDir && p.momentumDir.dx === dx && p.momentumDir.dy === dy && p.momentumTimer > 0);
     const currentSteps = isSameStraight ? (p.momentumSteps || 0) : 0;
-    const hasMomentum = Boolean(this.isVersus && currentSteps >= stepsRequired && isSameStraight);
+    const hasMomentum = Boolean(currentSteps >= stepsRequired && isSameStraight);
 
     // Versus Collision Logic (solid, ghost, push)
     if (this.isVersus) {
@@ -952,20 +953,14 @@ class Game {
       }
     }
 
-    // Normal successful step: update momentum accumulator (Versus Mode only)
-    if (this.isVersus) {
-      if (isSameStraight) {
-        p.momentumSteps = (p.momentumSteps || 0) + 1;
-      } else {
-        p.momentumSteps = 1;
-        p.momentumDir = { dx, dy };
-      }
-      p.momentumTimer = momentumWindow;
+    // Normal successful step: update momentum accumulator (applies to all modes)
+    if (isSameStraight) {
+      p.momentumSteps = (p.momentumSteps || 0) + 1;
     } else {
-      p.momentumSteps = 0;
-      p.momentumTimer = 0;
-      p.momentumDir = { dx: 0, dy: 0 };
+      p.momentumSteps = 1;
+      p.momentumDir = { dx, dy };
     }
+    p.momentumTimer = momentumWindow;
 
     p.bufferedMove = null;
     p.prevCol = p.col;
@@ -979,7 +974,7 @@ class Game {
     this.sound.playHop();
 
     const oldScreenPos = this.renderer.gridToScreen(p.prevCol, p.prevRow);
-    const isDashing = Boolean(this.isVersus && p.momentumSteps >= 2);
+    const isDashing = Boolean(p.momentumSteps >= 2);
     const dustCount = isDashing ? 6 : 3;
     for (let i = 0; i < dustCount; i++) {
       this.renderer.spawnParticle({
@@ -988,7 +983,7 @@ class Game {
         vx: -dx * (isDashing ? 45 : 30) + (Math.random() - 0.5) * 20,
         vy: -dy * (isDashing ? 45 : 30) + (Math.random() - 0.5) * 20,
         radius: isDashing ? 3.5 : 2.5,
-        color: isDashing ? (p.id === 1 ? '#60a5fa' : '#f87171') : '#cbd5e1',
+        color: isDashing ? (p.id === 1 ? '#60a5fa' : (p.id === 2 ? '#f87171' : '#38bdf8')) : '#cbd5e1',
         life: 0.26
       });
     }
@@ -1462,6 +1457,25 @@ class Game {
         }
       }
       return;
+    }
+
+    // Momentum timeout decay (Single Player)
+    if (this.player.momentumTimer > 0) {
+      this.player.momentumTimer -= dt;
+      if (this.player.momentumTimer <= 0) {
+        this.player.momentumTimer = 0;
+        this.player.momentumSteps = 0;
+        this.player.momentumDir = { dx: 0, dy: 0 };
+      }
+    }
+
+    // Afterimages during active momentum hop (Single Player)
+    if (this.player.momentumSteps >= 2 && !this.player.isDead && this.player.isHopping && this.player.momentumTimer > 0) {
+      this.player.afterimageTimer = (this.player.afterimageTimer || 0) + dt;
+      if (this.player.afterimageTimer >= 0.035) {
+        this.player.afterimageTimer = 0;
+        this.renderer.spawnAfterimage(this.player);
+      }
     }
 
     // 1. Update Player Hop Animation
