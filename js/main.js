@@ -404,15 +404,15 @@ document.addEventListener('DOMContentLoaded', () => {
             if (btnPauseToggle) btnPauseToggle.click();
           }
         } else {
-          // Local Couch 1v1 Mode (Shared Keyboard): P1 Arrows, P2 WASD
-          if (e.key === 'ArrowUp') game.movePlayer(0, 0, -1);
-          else if (e.key === 'ArrowDown') game.movePlayer(0, 0, 1);
-          else if (e.key === 'ArrowLeft') game.movePlayer(0, -1, 0);
-          else if (e.key === 'ArrowRight') game.movePlayer(0, 1, 0);
-          else if (e.key === 'w' || e.key === 'W') game.movePlayer(1, 0, -1);
-          else if (e.key === 's' || e.key === 'S') game.movePlayer(1, 0, 1);
-          else if (e.key === 'a' || e.key === 'A') game.movePlayer(1, -1, 0);
-          else if (e.key === 'd' || e.key === 'D') game.movePlayer(1, 1, 0);
+          // Local Couch 1v1 Mode (Shared Keyboard): P1 WASD (left), P2 Arrow keys (right)
+          if (e.key === 'w' || e.key === 'W') game.movePlayer(0, 0, -1);
+          else if (e.key === 's' || e.key === 'S') game.movePlayer(0, 0, 1);
+          else if (e.key === 'a' || e.key === 'A') game.movePlayer(0, -1, 0);
+          else if (e.key === 'd' || e.key === 'D') game.movePlayer(0, 1, 0);
+          else if (e.key === 'ArrowUp') game.movePlayer(1, 0, -1);
+          else if (e.key === 'ArrowDown') game.movePlayer(1, 0, 1);
+          else if (e.key === 'ArrowLeft') game.movePlayer(1, -1, 0);
+          else if (e.key === 'ArrowRight') game.movePlayer(1, 1, 0);
           else if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
             if (btnPauseToggle) btnPauseToggle.click();
           }
