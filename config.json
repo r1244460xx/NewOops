@@ -18,5 +18,7 @@
   "versusCollisionMode": "push",
   "versusTargetWins": 3,
   "versusHazardMode": "laser",
+  "momentumWindow": 0.32,
+  "momentumStepsRequired": 2,
   "_updatedAt": 1789540579547
 }

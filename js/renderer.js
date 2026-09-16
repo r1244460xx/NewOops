@@ -56,6 +56,7 @@ class GameRenderer {
     // Particles & Floating texts
     this.particles = [];
     this.floatingTexts = [];
+    this.afterimages = [];
 
     // Background animation phase
     this.bgTime = 0;
@@ -239,6 +240,16 @@ class GameRenderer {
         this.floatingTexts.pop();
       }
     }
+
+    // Update afterimages (O(1) swap-and-pop removal)
+    for (let i = this.afterimages.length - 1; i >= 0; i--) {
+      const af = this.afterimages[i];
+      af.life -= dt;
+      if (af.life <= 0) {
+        this.afterimages[i] = this.afterimages[this.afterimages.length - 1];
+        this.afterimages.pop();
+      }
+    }
   }
 
   // Spawn visual particle
@@ -260,6 +271,86 @@ class GameRenderer {
     });
   }
 
+  // Spawn afterimage ghost trail behind dashing player
+  spawnAfterimage(player) {
+    const pColor = player.id === 1 ? '#007aff' : (player.id === 2 ? '#ff3b30' : (player.color || '#34c759'));
+    const screenX = this.boardOriginX + (player.animX + 0.5) * this.tileSize;
+    const screenY = this.boardOriginY + (player.animY + 0.5) * this.tileSize;
+    this.afterimages.push({
+      x: screenX,
+      y: screenY,
+      hopElev: player.hopZ || 0,
+      tiltAngle: player.tiltAngle || 0,
+      color: pColor,
+      life: 0.24,
+      maxLife: 0.24
+    });
+  }
+
+  // Head-on Clash particle explosion & shockwave burst
+  spawnClashBurst(midX, midY) {
+    // 1. Dual Shockwave Rings & Golden Spark Shower
+    for (let i = 0; i < 28; i++) {
+      const angle = (i / 28) * Math.PI * 2 + (Math.random() - 0.5) * 0.2;
+      const speed = 120 + Math.random() * 160;
+      this.spawnParticle({
+        x: midX,
+        y: midY,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        radius: 3 + Math.random() * 3,
+        color: i % 2 === 0 ? '#ffd700' : '#ffffff',
+        life: 0.35 + Math.random() * 0.15,
+        gravity: 60
+      });
+    }
+
+    // 2. High-speed spark lines
+    for (let i = 0; i < 12; i++) {
+      this.spawnParticle({
+        x: midX,
+        y: midY,
+        vx: (Math.random() - 0.5) * 320,
+        vy: (Math.random() - 0.5) * 320,
+        radius: 2,
+        color: '#fffae6',
+        life: 0.2,
+        gravity: 0
+      });
+    }
+
+    // 3. Central bright flash particle
+    this.spawnParticle({
+      x: midX,
+      y: midY,
+      vx: 0,
+      vy: 0,
+      radius: 26,
+      color: '#ffffff',
+      life: 0.14
+    });
+  }
+
+  // Knocked-away impact spark shower for pushed opponent
+  spawnImpactSparks(x, y, dx, dy) {
+    const baseAngle = Math.atan2(dy, dx);
+    for (let i = 0; i < 20; i++) {
+      const spread = (Math.random() - 0.5) * 1.4;
+      const speed = 100 + Math.random() * 140;
+      const angle = baseAngle + spread;
+      this.spawnParticle({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        radius: 2.5 + Math.random() * 2.5,
+        color: i % 3 === 0 ? '#ff9500' : (i % 3 === 1 ? '#ff3b30' : '#ffffff'),
+        life: 0.32 + Math.random() * 0.15,
+        gravity: 80
+      });
+    }
+  }
+
   // Add floating text popup
   addFloatingText(text, x, y, color = '#ffd60a') {
     this.floatingTexts.push({
@@ -272,6 +363,51 @@ class GameRenderer {
       scale: 1,
       alpha: 1
     });
+  }
+
+  // Draw translucent motion silhouette
+  drawGhost(ghost) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.translate(ghost.x, ghost.y - ghost.hopElev);
+    ctx.rotate(ghost.tiltAngle);
+    ctx.globalAlpha = Math.max(0, (ghost.life / ghost.maxLife) * 0.45);
+    ctx.strokeStyle = ghost.color;
+    ctx.fillStyle = ghost.color;
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    const headRadius = 14;
+    const headY = -30;
+    const bodyTopY = headY + headRadius;
+    const bodyBottomY = 2;
+
+    // Head
+    ctx.beginPath();
+    ctx.arc(0, headY, headRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Spine & limbs
+    ctx.beginPath();
+    ctx.moveTo(0, bodyTopY);
+    ctx.lineTo(0, bodyBottomY);
+    ctx.moveTo(0, bodyBottomY);
+    ctx.lineTo(-10, bodyBottomY + 12);
+    ctx.moveTo(0, bodyBottomY);
+    ctx.lineTo(10, bodyBottomY + 12);
+    ctx.moveTo(-12, bodyTopY + 2);
+    ctx.lineTo(0, bodyTopY + 3);
+    ctx.lineTo(12, bodyTopY + 10);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  drawAfterimages() {
+    for (let i = 0; i < this.afterimages.length; i++) {
+      this.drawGhost(this.afterimages[i]);
+    }
   }
 
   // --- Main Render Loop ---
@@ -308,6 +444,9 @@ class GameRenderer {
 
     // 5. Active Projectiles
     this.drawObstacles(obstacles);
+
+    // 5.5 Player Afterimages (Momentum Sprint Trails)
+    this.drawAfterimages();
 
     // 6. Player (Mr. Oops / 1v1 Versus Players)
     if (player) {
@@ -658,8 +797,21 @@ class GameRenderer {
 
   drawPlayer(player, obstacles) {
     const ctx = this.ctx;
-    const screenX = this.boardOriginX + (player.animX + 0.5) * this.tileSize;
-    const screenY = this.boardOriginY + (player.animY + 0.5) * this.tileSize;
+    let screenX = this.boardOriginX + (player.animX + 0.5) * this.tileSize;
+    let screenY = this.boardOriginY + (player.animY + 0.5) * this.tileSize;
+
+    // Recoil bounce offset (for Option B blocked recoil or Clash)
+    if (player.recoilX || player.recoilY) {
+      screenX += (player.recoilX || 0) * this.tileSize;
+      screenY += (player.recoilY || 0) * this.tileSize;
+    }
+
+    const isStunned = Boolean((player.stunTimer && player.stunTimer > 0) || player.isStunned);
+    if (isStunned) {
+      // Tremble during stun
+      screenX += Math.sin(this.bgTime * 45) * 1.5;
+    }
+
     const hopElev = player.hopZ || 0;
 
     const isScared = player.isScared || false;
@@ -818,6 +970,40 @@ class GameRenderer {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(pLabel, 0, badgeY + 7);
+      }
+
+      // Stunned dizzy stars effect
+      if (isStunned) {
+        const starAngleBase = this.bgTime * 9;
+        for (let s = 0; s < 3; s++) {
+          const angle = starAngleBase + (s * Math.PI * 2) / 3;
+          const sx = Math.cos(angle) * 14;
+          const sy = headY - 14 + Math.sin(angle) * 4;
+          ctx.fillStyle = '#ffd700';
+          ctx.beginPath();
+          ctx.arc(sx, sy, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+      }
+
+      // Momentum / Dash indicator (flaming trail badge)
+      if (player.momentumSteps >= 2 && !isDead) {
+        ctx.save();
+        const pulse = 1 + Math.sin(this.bgTime * 14) * 0.1;
+        ctx.scale(pulse, pulse);
+        const dashY = headY - 38;
+        ctx.fillStyle = '#ff9500';
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.8;
+        ctx.font = '900 8px "Fredoka", "Bungee", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.strokeText('⚡DASH', 0, dashY);
+        ctx.fillText('⚡DASH', 0, dashY);
+        ctx.restore();
       }
     }
 

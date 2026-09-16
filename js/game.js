@@ -122,7 +122,14 @@ class Game {
       targetRow: row,
       prevCol: col,
       prevRow: row,
-      bufferedMove: null
+      bufferedMove: null,
+      momentumDir: { dx: 0, dy: 0 },
+      momentumSteps: 0,
+      momentumTimer: 0,
+      stunTimer: 0,
+      recoilX: 0,
+      recoilY: 0,
+      afterimageTimer: 0
     };
   }
 
@@ -289,7 +296,11 @@ class Game {
         tiltAngle: p.tiltAngle,
         isHopping: p.isHopping,
         isScared: p.isScared,
-        isDead: p.isDead
+        isDead: p.isDead,
+        momentumSteps: p.momentumSteps || 0,
+        stunTimer: p.stunTimer || 0,
+        recoilX: p.recoilX || 0,
+        recoilY: p.recoilY || 0
       })),
       obstacles: this.obstacleManager.obstacles.map(o => ({
         type: o.type,
@@ -351,6 +362,12 @@ class Game {
     if (msg.players && Array.isArray(msg.players)) {
       this.players = msg.players;
       this.player = this.players[1] || this.players[0];
+      for (let i = 0; i < this.players.length; i++) {
+        const pl = this.players[i];
+        if (pl.momentumSteps >= 2 && pl.isHopping && !pl.isDead) {
+          this.renderer.spawnAfterimage(pl);
+        }
+      }
     }
 
     if (msg.obstacles && Array.isArray(msg.obstacles)) {
@@ -768,26 +785,45 @@ class Game {
     const p = this.isVersus ? this.players[playerIdx] : this.player;
     if (!p || p.isDead) return;
 
+    // Stun check: player cannot move during stun penalty (Option B or Clash recoil)
+    if (p.stunTimer && p.stunTimer > 0) {
+      return;
+    }
+
     // If already in middle of hop, buffer next move for snappy continuous control
     if (p.isHopping && p.hopProgress < 0.8) {
       p.bufferedMove = { dx, dy };
       return;
     }
 
+    const cfg = window.configManager;
+    const momentumWindow = cfg ? (cfg.get('momentumWindow') || 0.32) : 0.32;
+    const stepsRequired = cfg ? (cfg.get('momentumStepsRequired') || 2) : 2;
+
     const newCol = p.col + dx;
     const newRow = p.row + dy;
 
     // Clamped inside 6x6 grid [0..5]
     if (newCol < 0 || newCol > 5 || newRow < 0 || newRow > 5) {
+      // Hitting grid boundary interrupts and clears momentum
+      p.momentumSteps = 0;
+      p.momentumTimer = 0;
+      p.momentumDir = { dx: 0, dy: 0 };
       return;
     }
+
+    // Check momentum continuity before resolving move:
+    // Momentum requires moving in the EXACT same straight direction within momentumWindow.
+    // Turning 90 degrees (直角) or reversing breaks momentum!
+    const isSameStraight = Boolean(p.momentumDir && p.momentumDir.dx === dx && p.momentumDir.dy === dy && p.momentumTimer > 0);
+    const currentSteps = isSameStraight ? (p.momentumSteps || 0) : 0;
+    const hasMomentum = (currentSteps >= stepsRequired && isSameStraight);
 
     // Versus Collision Logic (solid, ghost, push)
     if (this.isVersus) {
       const oppIdx = 1 - playerIdx;
       const opponent = this.players[oppIdx];
-      const cfg = window.configManager;
-      const collisionMode = cfg ? cfg.get('versusCollisionMode') : 'solid';
+      const collisionMode = cfg ? cfg.get('versusCollisionMode') : 'push';
 
       if (opponent && !opponent.isDead && opponent.col === newCol && opponent.row === newRow) {
         if (collisionMode === 'solid') {
@@ -795,27 +831,135 @@ class Game {
           this.sound.playWarning();
           return;
         } else if (collisionMode === 'push') {
-          const pushCol = opponent.col + dx;
-          const pushRow = opponent.row + dy;
-          if (pushCol >= 0 && pushCol <= 5 && pushRow >= 0 && pushRow <= 5) {
-            opponent.prevCol = opponent.col;
-            opponent.prevRow = opponent.row;
-            opponent.col = pushCol;
-            opponent.row = pushRow;
-            opponent.isHopping = true;
-            opponent.hopProgress = 0;
-            opponent.tiltAngle = dx * 0.2 + dy * 0.1;
-            const oppPos = this.renderer.gridToScreen(opponent.col, opponent.row);
-            this.renderer.addFloatingText('PUSH!', oppPos.x, oppPos.y - 20, '#ff9500');
-            this.sound.playHop();
+          // 1. Check Head-on Clash:
+          // Both players have momentum and charge face-to-face in opposing directions!
+          const oppIsSameStraight = Boolean(opponent.momentumDir && opponent.momentumDir.dx === -dx && opponent.momentumDir.dy === -dy && opponent.momentumTimer > 0);
+          const oppHasMomentum = Boolean((opponent.momentumSteps || 0) >= stepsRequired && oppIsSameStraight);
+
+          if (hasMomentum && oppHasMomentum) {
+            // == HEAD-ON CLASH ==
+            // Reset momenta for both
+            p.momentumSteps = 0;
+            p.momentumTimer = 0;
+            p.momentumDir = { dx: 0, dy: 0 };
+            opponent.momentumSteps = 0;
+            opponent.momentumTimer = 0;
+            opponent.momentumDir = { dx: 0, dy: 0 };
+
+            // Apply stun penalty to both
+            p.stunTimer = 0.32;
+            opponent.stunTimer = 0.32;
+
+            // Recoil offsets (both bounce back towards their own tile)
+            p.recoilX = -dx * 0.35;
+            p.recoilY = -dy * 0.35;
+            p.tiltAngle = -dx * 0.25 - dy * 0.12;
+
+            opponent.recoilX = dx * 0.35;
+            opponent.recoilY = dy * 0.35;
+            opponent.tiltAngle = dx * 0.25 + dy * 0.12;
+
+            // Sound & Shake
+            this.playSound('playClash');
+            this.renderer.triggerShake(16, 0.35);
+
+            // Particles and clash burst
+            const pScreen = this.renderer.gridToScreen(p.col, p.row);
+            const oppScreen = this.renderer.gridToScreen(opponent.col, opponent.row);
+            const midX = (pScreen.x + oppScreen.x) / 2;
+            const midY = (pScreen.y + oppScreen.y) / 2;
+            this.renderer.spawnClashBurst(midX, midY);
+            this.renderer.addFloatingText('⚡ CLASH! ⚡', midX, midY - 24, '#ffd700');
+
+            if (this.netRole === 'host') this.broadcastHostState();
+            return;
+          }
+
+          // 2. Check Momentum Push:
+          if (hasMomentum) {
+            const pushCol = opponent.col + dx;
+            const pushRow = opponent.row + dy;
+            if (pushCol >= 0 && pushCol <= 5 && pushRow >= 0 && pushRow <= 5) {
+              // Opponent is knocked away!
+              opponent.prevCol = opponent.col;
+              opponent.prevRow = opponent.row;
+              opponent.col = pushCol;
+              opponent.row = pushRow;
+              opponent.isHopping = true;
+              opponent.hopProgress = 0;
+              opponent.tiltAngle = dx * 0.45 + dy * 0.22;
+              opponent.momentumSteps = 0;
+              opponent.momentumTimer = 0;
+              opponent.momentumDir = { dx: 0, dy: 0 };
+
+              // Knocked-away impact FX
+              const oppPos = this.renderer.gridToScreen(opponent.col, opponent.row);
+              this.renderer.spawnImpactSparks(oppPos.x, oppPos.y, dx, dy);
+              this.renderer.addFloatingText('PUSH!', oppPos.x, oppPos.y - 20, '#ff9500');
+              this.renderer.triggerShake(9, 0.25);
+              this.playSound('playPush');
+
+              // Attacker consumes momentum (starts fresh streak)
+              p.momentumSteps = 1;
+              p.momentumDir = { dx, dy };
+              p.momentumTimer = momentumWindow;
+            } else {
+              // Against edge of grid: pinned against wall, cannot be pushed
+              p.stunTimer = 0.25;
+              p.recoilX = -dx * 0.25;
+              p.recoilY = -dy * 0.25;
+              p.momentumSteps = 0;
+              p.momentumTimer = 0;
+              p.momentumDir = { dx: 0, dy: 0 };
+              this.playSound('playBlocked');
+              const pPos = this.renderer.gridToScreen(p.col, p.row);
+              this.renderer.addFloatingText('WALL PIN!', pPos.x, pPos.y - 20, '#ff3b30');
+              if (this.netRole === 'host') this.broadcastHostState();
+              return;
+            }
           } else {
-            // Against edge of grid: cannot be pushed, block movement
+            // 3. Option B: Insufficient Momentum Attempt
+            p.momentumSteps = 0;
+            p.momentumTimer = 0;
+            p.momentumDir = { dx: 0, dy: 0 };
+            p.stunTimer = 0.28; // Stun penalty
+            p.recoilX = dx * 0.22; // Quick bounce-back recoil
+            p.recoilY = dy * 0.22;
+            p.tiltAngle = -dx * 0.18 - dy * 0.08;
+
+            this.playSound('playBlocked');
+
+            const pPos = this.renderer.gridToScreen(p.col, p.row);
+            const contactX = pPos.x + dx * 20;
+            const contactY = pPos.y + dy * 20;
+            for (let i = 0; i < 8; i++) {
+              this.renderer.spawnParticle({
+                x: contactX,
+                y: contactY,
+                vx: -dx * 40 + (Math.random() - 0.5) * 40,
+                vy: -dy * 40 + (Math.random() - 0.5) * 40,
+                radius: 2.5,
+                color: '#cbd5e1',
+                life: 0.2
+              });
+            }
+            this.renderer.addFloatingText('BLOCKED!', pPos.x, pPos.y - 20, '#ff3b30');
+            if (this.netRole === 'host') this.broadcastHostState();
             return;
           }
         }
         // If 'ghost': pass through freely
       }
     }
+
+    // Normal successful step: update momentum accumulator
+    if (isSameStraight) {
+      p.momentumSteps = (p.momentumSteps || 0) + 1;
+    } else {
+      p.momentumSteps = 1;
+      p.momentumDir = { dx, dy };
+    }
+    p.momentumTimer = momentumWindow;
 
     p.bufferedMove = null;
     p.prevCol = p.col;
@@ -829,16 +973,21 @@ class Game {
     this.sound.playHop();
 
     const oldScreenPos = this.renderer.gridToScreen(p.prevCol, p.prevRow);
-    for (let i = 0; i < 3; i++) {
+    const dustCount = p.momentumSteps >= 2 ? 6 : 3;
+    for (let i = 0; i < dustCount; i++) {
       this.renderer.spawnParticle({
         x: oldScreenPos.x + (Math.random() - 0.5) * 10,
         y: oldScreenPos.y + 12,
-        vx: -dx * 30 + (Math.random() - 0.5) * 20,
-        vy: -dy * 30 + (Math.random() - 0.5) * 20,
-        radius: 2.5,
-        color: '#cbd5e1',
-        life: 0.25
+        vx: -dx * (p.momentumSteps >= 2 ? 45 : 30) + (Math.random() - 0.5) * 20,
+        vy: -dy * (p.momentumSteps >= 2 ? 45 : 30) + (Math.random() - 0.5) * 20,
+        radius: p.momentumSteps >= 2 ? 3.5 : 2.5,
+        color: p.momentumSteps >= 2 ? (p.id === 1 ? '#60a5fa' : '#f87171') : '#cbd5e1',
+        life: 0.26
       });
+    }
+
+    if (p.momentumSteps >= 2) {
+      this.renderer.spawnAfterimage(p);
     }
 
     this.checkNearMiss(p.prevCol, p.prevRow, p);
@@ -1169,9 +1318,46 @@ class Game {
         return;
       }
 
-      // 1. Update hop animation for each player
+      // 1. Update hop animation, timers, and recoil for each player
       for (const pl of this.players) {
         if (pl.isDead) continue;
+
+        // Momentum timeout decay
+        if (pl.momentumTimer > 0) {
+          pl.momentumTimer -= dt;
+          if (pl.momentumTimer <= 0) {
+            pl.momentumSteps = 0;
+            pl.momentumDir = { dx: 0, dy: 0 };
+          }
+        }
+
+        // Stun timer decay (penalty for blocked push or head-on clash)
+        if (pl.stunTimer > 0) {
+          pl.stunTimer -= dt;
+          if (pl.stunTimer <= 0) {
+            pl.stunTimer = 0;
+          }
+        }
+
+        // Recoil spring-back dampening
+        if (pl.recoilX) {
+          pl.recoilX *= Math.max(0, 1 - dt * 14);
+          if (Math.abs(pl.recoilX) < 0.005) pl.recoilX = 0;
+        }
+        if (pl.recoilY) {
+          pl.recoilY *= Math.max(0, 1 - dt * 14);
+          if (Math.abs(pl.recoilY) < 0.005) pl.recoilY = 0;
+        }
+
+        // Afterimages during active momentum hop
+        if (pl.momentumSteps >= 2 && !pl.isDead && pl.isHopping) {
+          pl.afterimageTimer = (pl.afterimageTimer || 0) + dt;
+          if (pl.afterimageTimer >= 0.035) {
+            pl.afterimageTimer = 0;
+            this.renderer.spawnAfterimage(pl);
+          }
+        }
+
         if (pl.isHopping) {
           pl.hopProgress += dt / pl.hopDuration;
           if (pl.hopProgress >= 1) {

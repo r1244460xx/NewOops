@@ -306,6 +306,109 @@ class SoundEngine {
     } catch (e) {}
   }
 
+  // Momentum Push impact sound (successful tackle / knock-away)
+  playPush() {
+    if (this.isMuted || !this.ctx || this.ctx.state !== 'running') return;
+    try {
+      const now = this.ctx.currentTime;
+      // Punchy sub-bass sweep
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(240, now);
+      osc.frequency.exponentialRampToValueAtTime(55, now + 0.22);
+      gain.gain.setValueAtTime(0.45, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.22);
+      osc.connect(gain);
+      gain.connect(this.sfxGain);
+      osc.start(now);
+      osc.stop(now + 0.22);
+
+      this.playNoise(0.14, 0.35);
+    } catch (e) {}
+  }
+
+  // Push Blocked recoil thud (insufficient momentum bounce-back)
+  playBlocked() {
+    if (this.isMuted || !this.ctx || this.ctx.state !== 'running') return;
+    try {
+      const now = this.ctx.currentTime;
+      // Dull thud
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(140, now);
+      osc.frequency.exponentialRampToValueAtTime(40, now + 0.16);
+      gain.gain.setValueAtTime(0.35, now);
+      gain.gain.exponentialRampToValueAtTime(0.01, now + 0.16);
+      osc.connect(gain);
+      gain.connect(this.sfxGain);
+      osc.start(now);
+      osc.stop(now + 0.16);
+
+      // Short metallic click
+      const click = this.ctx.createOscillator();
+      const clickGain = this.ctx.createGain();
+      click.type = 'square';
+      click.frequency.setValueAtTime(820, now);
+      click.frequency.exponentialRampToValueAtTime(200, now + 0.05);
+      clickGain.gain.setValueAtTime(0.18, now);
+      clickGain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+      click.connect(clickGain);
+      clickGain.connect(this.sfxGain);
+      click.start(now);
+      click.stop(now + 0.05);
+    } catch (e) {}
+  }
+
+  // Head-on Clash (high energy metal impact + shockwave explosion)
+  playClash() {
+    if (this.isMuted || !this.ctx || this.ctx.state !== 'running') return;
+    try {
+      const now = this.ctx.currentTime;
+      // High metallic ring 1
+      const ring1 = this.ctx.createOscillator();
+      const rGain1 = this.ctx.createGain();
+      ring1.type = 'sine';
+      ring1.frequency.setValueAtTime(1240, now);
+      ring1.frequency.exponentialRampToValueAtTime(800, now + 0.3);
+      rGain1.gain.setValueAtTime(0.3, now);
+      rGain1.gain.exponentialRampToValueAtTime(0.005, now + 0.3);
+      ring1.connect(rGain1);
+      rGain1.connect(this.sfxGain);
+      ring1.start(now);
+      ring1.stop(now + 0.3);
+
+      // High metallic ring 2 (dissonant harmonic for metallic clang)
+      const ring2 = this.ctx.createOscillator();
+      const rGain2 = this.ctx.createGain();
+      ring2.type = 'square';
+      ring2.frequency.setValueAtTime(1780, now);
+      ring2.frequency.exponentialRampToValueAtTime(600, now + 0.22);
+      rGain2.gain.setValueAtTime(0.18, now);
+      rGain2.gain.exponentialRampToValueAtTime(0.005, now + 0.22);
+      ring2.connect(rGain2);
+      rGain2.connect(this.sfxGain);
+      ring2.start(now);
+      ring2.stop(now + 0.22);
+
+      // Deep explosion bass
+      const sub = this.ctx.createOscillator();
+      const subGain = this.ctx.createGain();
+      sub.type = 'sawtooth';
+      sub.frequency.setValueAtTime(260, now);
+      sub.frequency.exponentialRampToValueAtTime(35, now + 0.35);
+      subGain.gain.setValueAtTime(0.4, now);
+      subGain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+      sub.connect(subGain);
+      subGain.connect(this.sfxGain);
+      sub.start(now);
+      sub.stop(now + 0.35);
+
+      this.playNoise(0.22, 0.4);
+    } catch (e) {}
+  }
+
   // Utility noise generator
   playNoise(duration, vol = 0.2) {
     if (!this.ctx || this.ctx.state !== 'running') return;

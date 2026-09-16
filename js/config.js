@@ -21,9 +21,11 @@ const DEFAULT_GAME_CONFIG = {
   wavesPerLevel: 5,
   starCooldown: 6,
   nearMissDistance: 0.95,
-  versusCollisionMode: 'solid',
+  versusCollisionMode: 'push',
   versusTargetWins: 3,
-  versusHazardMode: 'allstar'
+  versusHazardMode: 'allstar',
+  momentumWindow: 0.32,
+  momentumStepsRequired: 2
 };
 
 const CONFIG_SCHEMA = [
@@ -216,12 +218,24 @@ const CONFIG_SCHEMA = [
     type: 'select',
     label: '單位碰撞規則 (Unit Collision Mode)',
     options: [
+      { value: 'push', label: '動量推擠 (Momentum Push - 連走2格蓄力推飛 / 迎面對撞拼刀 / 無動量硬直彈回)' },
       { value: 'solid', label: '實體卡位 (Solid Block - 一格限一人，搶位阻擋)' },
-      { value: 'ghost', label: '穿透重疊 (Ghost - 兩人可重疊，純比走位)' },
-      { value: 'push', label: '推擠撞擊 (Push & Bump - 踩入對手格將其強推)' }
+      { value: 'ghost', label: '穿透重疊 (Ghost - 兩人可重疊，純比走位)' }
     ],
-    placeholder: 'solid',
+    placeholder: 'push',
     desc: '決定兩位玩家跳至同一個格子時的實體交互行為'
+  },
+  {
+    key: 'momentumWindow',
+    category: '雙人對戰設定 (1v1 Versus Settings)',
+    type: 'number',
+    label: '動量連續時間窗口 (Momentum Window)',
+    min: 0.15,
+    max: 0.60,
+    step: 0.01,
+    unit: 's',
+    placeholder: '0.32',
+    desc: '判定同方向連續前進的時間寬容度（格鬥遊戲建議約 0.30s～0.35s）'
   },
   {
     key: 'versusTargetWins',
