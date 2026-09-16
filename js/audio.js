@@ -43,9 +43,33 @@ class SoundEngine {
   resume() {
     try {
       this.init();
-      if (this.ctx && this.ctx.state === 'suspended') {
-        this.ctx.resume().catch(() => {});
+      if (this.ctx) {
+        if (this.ctx.state === 'suspended') {
+          this.ctx.resume().then(() => this.prewarm()).catch(() => {});
+        } else if (this.ctx.state === 'running') {
+          this.prewarm();
+        }
       }
+    } catch (e) {}
+  }
+
+  // Pre-warm audio graph to prevent JIT / Fourier table compilation hitch during gameplay (especially sawtooth)
+  prewarm() {
+    if (this._prewarmed || !this.ctx || this.ctx.state !== 'running') return;
+    try {
+      this._prewarmed = true;
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(440, now);
+      osc.frequency.exponentialRampToValueAtTime(880, now + 0.01);
+      gain.gain.setValueAtTime(0.00001, now);
+      gain.gain.linearRampToValueAtTime(0, now + 0.01);
+      osc.connect(gain);
+      gain.connect(this.masterGain || this.ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.01);
     } catch (e) {}
   }
 

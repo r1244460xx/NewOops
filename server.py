@@ -224,6 +224,12 @@ class GameServerHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_header("Sec-WebSocket-Accept", accept_key)
                 self.end_headers()
 
+                # Enable TCP_NODELAY to eliminate Nagle buffering for ultra-low latency LAN relay
+                try:
+                    self.connection.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+                except Exception:
+                    pass
+
                 client = WSClientWrapper(self.rfile, self.wfile, self.connection)
                 try:
                     while True:

@@ -555,17 +555,24 @@ class GameRenderer {
       // Laser warning targeting line
       if (isLaser) {
         ctx.save();
-        ctx.fillStyle = `rgba(255, 42, 109, ${0.18 + 0.16 * Math.sin(w.timer * 25)})`;
-        ctx.strokeStyle = `rgba(255, 75, 120, ${0.5 + 0.4 * Math.sin(w.timer * 25)})`;
-        ctx.lineWidth = 2;
-
+        const laserPulse = Math.sin(w.timer * 25);
+        ctx.fillStyle = '#ff2a6d';
+        ctx.globalAlpha = 0.18 + 0.16 * laserPulse;
         if (w.direction === 'horizontal') {
           const ly = oy + w.index * ts;
           ctx.fillRect(ox, ly, bw, ts);
-          ctx.strokeRect(ox, ly + 2, bw, ts - 4);
         } else {
           const lx = ox + w.index * ts;
           ctx.fillRect(lx, oy, ts, bh);
+        }
+        ctx.strokeStyle = '#ff4b78';
+        ctx.globalAlpha = 0.5 + 0.4 * laserPulse;
+        ctx.lineWidth = 2;
+        if (w.direction === 'horizontal') {
+          const ly = oy + w.index * ts;
+          ctx.strokeRect(ox, ly + 2, bw, ts - 4);
+        } else {
+          const lx = ox + w.index * ts;
           ctx.strokeRect(lx + 2, oy, ts - 4, bh);
         }
         ctx.restore();
@@ -779,9 +786,11 @@ class GameRenderer {
       lw = ts;
     }
 
-    ctx.fillStyle = 'rgba(255, 42, 109, 0.55)';
+    ctx.fillStyle = '#ff2a6d';
+    ctx.globalAlpha = 0.55;
     ctx.fillRect(lx, ly, lw, lh);
 
+    ctx.globalAlpha = 1.0;
     ctx.fillStyle = '#ff3b30';
     if (obs.direction === 'horizontal') {
       ctx.fillRect(lx, ly + ts * 0.2, lw, ts * 0.6);

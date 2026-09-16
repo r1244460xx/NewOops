@@ -14,9 +14,10 @@
  */
 
 class ObstacleManager {
-  constructor(renderer, soundEngine) {
+  constructor(renderer, soundEngine, game = null) {
     this.renderer = renderer;
     this.sound = soundEngine;
+    this.game = game;
     this.gridSize = 6;
 
     this.warnings = [];
@@ -27,6 +28,14 @@ class ObstacleManager {
     this.spawnsThisLevel = 0;
     this.spawnCooldown = 0;
     this.isWaveComplete = false;
+  }
+
+  playSound(name) {
+    if (this.game && typeof this.game.playSound === 'function') {
+      this.game.playSound(name);
+    } else if (this.sound && typeof this.sound[name] === 'function') {
+      this.sound[name]();
+    }
   }
 
   reset(mode = 'rock') {
@@ -63,9 +72,9 @@ class ObstacleManager {
       if (w.timer <= 0.22 && !w.soundPlayed) {
         w.soundPlayed = true;
         if (w.type === 'laser') {
-          this.sound.playLaserCharge();
+          this.playSound('playLaserCharge');
         } else {
-          this.sound.playWarning();
+          this.playSound('playWarning');
         }
       }
 
@@ -170,7 +179,7 @@ class ObstacleManager {
       maxTimer: duration,
       soundPlayed: false
     });
-    this.sound.playWarning();
+    this.playSound('playWarning');
   }
 
   spawnFromWarning(w) {
@@ -212,7 +221,7 @@ class ObstacleManager {
         rotation: 0,
         isFinished: false
       });
-      this.sound.playRockRoll();
+      this.playSound('playRockRoll');
 
     } else if (w.type === 'cannon') {
       // Medium-fast cannonball
@@ -249,7 +258,7 @@ class ObstacleManager {
         smokeTimer: 0,
         isFinished: false
       });
-      this.sound.playCannonShot();
+      this.playSound('playCannonShot');
 
     } else if (w.type === 'laser') {
       // Fast instantaneous laser beam
@@ -262,7 +271,7 @@ class ObstacleManager {
         maxDuration: duration,
         isFinished: false
       });
-      this.sound.playLaserBlast();
+      this.playSound('playLaserBlast');
       this.renderer.triggerShake(6, 0.2);
 
       const ts = this.renderer.tileSize;

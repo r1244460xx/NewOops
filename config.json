@@ -16,9 +16,8 @@
   "starCooldown": 6,
   "nearMissDistance": 0.95,
   "versusCollisionMode": "push",
+  "momentumWindow": 0.32,
   "versusTargetWins": 3,
   "versusHazardMode": "laser",
-  "momentumWindow": 0.32,
-  "momentumStepsRequired": 2,
-  "_updatedAt": 1789540579547
+  "_updatedAt": 1789553022319
 }

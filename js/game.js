@@ -9,7 +9,7 @@ class Game {
     this.canvas = canvas;
     this.renderer = new GameRenderer(canvas);
     this.sound = window.soundEngine;
-    this.obstacleManager = new ObstacleManager(this.renderer, this.sound);
+    this.obstacleManager = new ObstacleManager(this.renderer, this.sound, this);
 
     this.state = 'MENU';
     this.mode = 'rock';
@@ -34,6 +34,7 @@ class Game {
     this.rematchStarting = false;
     this.pendingSounds = [];
     this.activeBanner = null;
+    this.lastShownBannerKey = null;
     this._gameOverFired = false;
 
     // Player Object
@@ -383,14 +384,23 @@ class Game {
       this.collectibles = msg.collectibles;
     }
 
-    if (msg.banner && (!this.activeBanner || this.activeBanner.title !== msg.banner.title || this.activeBanner.sub !== msg.banner.sub)) {
-      this.showWaveBanner(msg.banner.title, msg.banner.sub, msg.banner.duration !== undefined ? msg.banner.duration : 1600);
+    if (msg.banner) {
+      const bannerKey = `${msg.banner.title}|${msg.banner.sub}`;
+      if (this.lastShownBannerKey !== bannerKey) {
+        this.lastShownBannerKey = bannerKey;
+        this.showWaveBanner(msg.banner.title, msg.banner.sub, msg.banner.duration !== undefined ? msg.banner.duration : 1600);
+      }
+    } else {
+      this.lastShownBannerKey = null;
     }
 
     if (msg.sounds && Array.isArray(msg.sounds)) {
       for (const sName of msg.sounds) {
         if (this.sound && typeof this.sound[sName] === 'function') {
           this.sound[sName]();
+        }
+        if (sName === 'playLaserBlast') {
+          this.renderer.triggerShake(6, 0.2);
         }
       }
     }
@@ -513,11 +523,19 @@ class Game {
           this.playSound('gem');
           this.showWaveBanner('BATTLE START!', 'FIGHT!', 1500);
         }
+        if (this.netRole === 'host') {
+          this.netBroadcastTimer = 0;
+          this.broadcastHostState();
+        }
       }
       if (this.startCountdownTimer <= 0) {
         this.startVersusRound();
       } else if (this.netRole === 'host') {
-        this.broadcastHostState();
+        this.netBroadcastTimer += dt;
+        if (this.netBroadcastTimer >= this.netBroadcastInterval) {
+          this.netBroadcastTimer = 0;
+          this.broadcastHostState();
+        }
       }
     }
   }
@@ -531,6 +549,7 @@ class Game {
     this.hitFreezeTimer = 0;
     this.gameOverDelay = 0;
     this.versusRoundDelay = 0;
+    this.lastShownBannerKey = null;
 
     // Symmetrical spawns for P1 (Blue) at (1, 3) and P2 (Red) at (4, 3) on the 6x6 grid
     const p1 = this.createPlayer(1, 3, 0, true);
@@ -1278,15 +1297,33 @@ class Game {
 
     if (this.state === 'WAITING_FOR_PLAYERS') {
       if (this.netRole === 'host') {
-        this.broadcastHostState();
+        this.netBroadcastTimer += dt;
+        if (this.netBroadcastTimer >= this.netBroadcastInterval) {
+          this.netBroadcastTimer = 0;
+          this.broadcastHostState();
+        }
       }
       return;
     }
 
     if (this.state !== 'PLAYING') return;
 
-    // Client Mode: all game simulation is driven by Host via applyRemoteState()
+    // Client Mode: game simulation is driven by Host via applyRemoteState()
     if (this.netRole === 'client') {
+      // Locally advance warnings and active obstacle timers between 30Hz network snapshots for smooth 120fps display
+      for (let i = this.obstacleManager.warnings.length - 1; i >= 0; i--) {
+        const w = this.obstacleManager.warnings[i];
+        w.timer -= dt;
+      }
+      for (let i = this.obstacleManager.obstacles.length - 1; i >= 0; i--) {
+        const obs = this.obstacleManager.obstacles[i];
+        if (obs.type === 'laser') {
+          obs.duration -= dt;
+          if (obs.duration <= 0) {
+            this.obstacleManager.obstacles.splice(i, 1);
+          }
+        }
+      }
       return;
     }
 
@@ -1301,8 +1338,13 @@ class Game {
         this.versusRoundDelay -= dt;
         if (this.versusRoundDelay <= 0) {
           this.startVersusRound();
+        } else if (this.netRole === 'host') {
+          this.netBroadcastTimer += dt;
+          if (this.netBroadcastTimer >= this.netBroadcastInterval) {
+            this.netBroadcastTimer = 0;
+            this.broadcastHostState();
+          }
         }
-        if (this.netRole === 'host') this.broadcastHostState();
         return;
       }
 
@@ -1323,8 +1365,14 @@ class Game {
             });
           }
           this.updateRematchUi(false);
+          if (this.netRole === 'host') this.broadcastHostState();
+        } else if (this.netRole === 'host') {
+          this.netBroadcastTimer += dt;
+          if (this.netBroadcastTimer >= this.netBroadcastInterval) {
+            this.netBroadcastTimer = 0;
+            this.broadcastHostState();
+          }
         }
-        if (this.netRole === 'host') this.broadcastHostState();
         return;
       }
 
