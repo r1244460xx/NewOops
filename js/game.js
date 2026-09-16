@@ -819,6 +819,7 @@ class Game {
     const isSameStraight = Boolean(p.momentumDir && p.momentumDir.dx === dx && p.momentumDir.dy === dy && p.momentumTimer > 0);
     const currentSteps = isSameStraight ? (p.momentumSteps || 0) : 0;
     const hasMomentum = Boolean(currentSteps >= stepsRequired && isSameStraight);
+    let pushedOpponent = false;
 
     // Versus Collision Logic (solid, ghost, push)
     if (this.isVersus) {
@@ -900,10 +901,11 @@ class Game {
               this.renderer.triggerShake(9, 0.25);
               this.playSound('playPush');
 
-              // Attacker consumes momentum (starts fresh streak)
-              p.momentumSteps = 1;
-              p.momentumDir = { dx, dy };
-              p.momentumTimer = momentumWindow;
+              // Attacker pushes opponent: momentum is strictly reset to 0 upon pushing someone
+              pushedOpponent = true;
+              p.momentumSteps = 0;
+              p.momentumTimer = 0;
+              p.momentumDir = { dx: 0, dy: 0 };
             } else {
               // Against edge of grid: pinned against wall, cannot be pushed
               p.stunTimer = 0.25;
@@ -954,13 +956,19 @@ class Game {
     }
 
     // Normal successful step: update momentum accumulator (applies to all modes)
-    if (isSameStraight) {
+    if (pushedOpponent) {
+      // Pusher's momentum is strictly reset to 0 upon pushing someone
+      p.momentumSteps = 0;
+      p.momentumTimer = 0;
+      p.momentumDir = { dx: 0, dy: 0 };
+    } else if (isSameStraight) {
       p.momentumSteps = (p.momentumSteps || 0) + 1;
+      p.momentumTimer = momentumWindow;
     } else {
       p.momentumSteps = 1;
       p.momentumDir = { dx, dy };
+      p.momentumTimer = momentumWindow;
     }
-    p.momentumTimer = momentumWindow;
 
     p.bufferedMove = null;
     p.prevCol = p.col;
