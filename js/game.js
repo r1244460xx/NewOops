@@ -298,6 +298,7 @@ class Game {
         isScared: p.isScared,
         isDead: p.isDead,
         momentumSteps: p.momentumSteps || 0,
+        momentumTimer: p.momentumTimer || 0,
         stunTimer: p.stunTimer || 0,
         recoilX: p.recoilX || 0,
         recoilY: p.recoilY || 0
@@ -364,7 +365,7 @@ class Game {
       this.player = this.players[1] || this.players[0];
       for (let i = 0; i < this.players.length; i++) {
         const pl = this.players[i];
-        if (pl.momentumSteps >= 2 && pl.isHopping && !pl.isDead) {
+        if (pl.momentumSteps >= 2 && pl.isHopping && (pl.momentumTimer > 0 || pl.momentumTimer === undefined) && !pl.isDead) {
           this.renderer.spawnAfterimage(pl);
         }
       }
@@ -813,11 +814,10 @@ class Game {
     }
 
     // Check momentum continuity before resolving move:
-    // Momentum requires moving in the EXACT same straight direction within momentumWindow.
-    // Turning 90 degrees (直角) or reversing breaks momentum!
-    const isSameStraight = Boolean(p.momentumDir && p.momentumDir.dx === dx && p.momentumDir.dy === dy && p.momentumTimer > 0);
+    // Momentum is strictly a Versus Mode mechanic!
+    const isSameStraight = Boolean(this.isVersus && p.momentumDir && p.momentumDir.dx === dx && p.momentumDir.dy === dy && p.momentumTimer > 0);
     const currentSteps = isSameStraight ? (p.momentumSteps || 0) : 0;
-    const hasMomentum = (currentSteps >= stepsRequired && isSameStraight);
+    const hasMomentum = Boolean(this.isVersus && currentSteps >= stepsRequired && isSameStraight);
 
     // Versus Collision Logic (solid, ghost, push)
     if (this.isVersus) {
@@ -952,14 +952,20 @@ class Game {
       }
     }
 
-    // Normal successful step: update momentum accumulator
-    if (isSameStraight) {
-      p.momentumSteps = (p.momentumSteps || 0) + 1;
+    // Normal successful step: update momentum accumulator (Versus Mode only)
+    if (this.isVersus) {
+      if (isSameStraight) {
+        p.momentumSteps = (p.momentumSteps || 0) + 1;
+      } else {
+        p.momentumSteps = 1;
+        p.momentumDir = { dx, dy };
+      }
+      p.momentumTimer = momentumWindow;
     } else {
-      p.momentumSteps = 1;
-      p.momentumDir = { dx, dy };
+      p.momentumSteps = 0;
+      p.momentumTimer = 0;
+      p.momentumDir = { dx: 0, dy: 0 };
     }
-    p.momentumTimer = momentumWindow;
 
     p.bufferedMove = null;
     p.prevCol = p.col;
@@ -973,20 +979,21 @@ class Game {
     this.sound.playHop();
 
     const oldScreenPos = this.renderer.gridToScreen(p.prevCol, p.prevRow);
-    const dustCount = p.momentumSteps >= 2 ? 6 : 3;
+    const isDashing = Boolean(this.isVersus && p.momentumSteps >= 2);
+    const dustCount = isDashing ? 6 : 3;
     for (let i = 0; i < dustCount; i++) {
       this.renderer.spawnParticle({
         x: oldScreenPos.x + (Math.random() - 0.5) * 10,
         y: oldScreenPos.y + 12,
-        vx: -dx * (p.momentumSteps >= 2 ? 45 : 30) + (Math.random() - 0.5) * 20,
-        vy: -dy * (p.momentumSteps >= 2 ? 45 : 30) + (Math.random() - 0.5) * 20,
-        radius: p.momentumSteps >= 2 ? 3.5 : 2.5,
-        color: p.momentumSteps >= 2 ? (p.id === 1 ? '#60a5fa' : '#f87171') : '#cbd5e1',
+        vx: -dx * (isDashing ? 45 : 30) + (Math.random() - 0.5) * 20,
+        vy: -dy * (isDashing ? 45 : 30) + (Math.random() - 0.5) * 20,
+        radius: isDashing ? 3.5 : 2.5,
+        color: isDashing ? (p.id === 1 ? '#60a5fa' : '#f87171') : '#cbd5e1',
         life: 0.26
       });
     }
 
-    if (p.momentumSteps >= 2) {
+    if (isDashing) {
       this.renderer.spawnAfterimage(p);
     }
 

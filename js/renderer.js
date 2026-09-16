@@ -273,6 +273,7 @@ class GameRenderer {
 
   // Spawn afterimage ghost trail behind dashing player
   spawnAfterimage(player) {
+    if (player.momentumTimer !== undefined && player.momentumTimer <= 0 && !player.isHopping) return;
     const pColor = player.id === 1 ? '#007aff' : (player.id === 2 ? '#ff3b30' : (player.color || '#34c759'));
     const screenX = this.boardOriginX + (player.animX + 0.5) * this.tileSize;
     const screenY = this.boardOriginY + (player.animY + 0.5) * this.tileSize;
@@ -989,8 +990,8 @@ class GameRenderer {
         }
       }
 
-      // Momentum / Dash indicator (flaming trail badge)
-      if (player.momentumSteps >= 2 && !isDead) {
+      // Momentum / Dash indicator (flaming trail badge) - only when momentum is genuinely active!
+      if (player.momentumSteps >= 2 && (player.momentumTimer > 0 || player.isHopping) && !isDead) {
         ctx.save();
         const pulse = 1 + Math.sin(this.bgTime * 14) * 0.1;
         ctx.scale(pulse, pulse);
