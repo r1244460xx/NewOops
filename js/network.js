@@ -136,6 +136,8 @@ class NetworkManager {
       if (this.onRematchVote) this.onRematchVote(msg);
     } else if (type === 'rematch_sync') {
       if (this.onRematchSync) this.onRematchSync(msg);
+    } else if (type === 'rematch_reject') {
+      if (this.onRematchReject) this.onRematchReject(msg);
     } else if (type === 'pong') {
       // Keepalive response
     }
@@ -173,6 +175,13 @@ class NetworkManager {
     this.send({
       type: 'rematch_vote',
       ready
+    });
+  }
+
+  sendRematchReject() {
+    this.send({
+      type: 'rematch_reject',
+      role: this.role
     });
   }
 

@@ -244,8 +244,40 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  let toastEl = null;
+  function showToast(msg, duration = 2500) {
+    if (!toastEl) {
+      toastEl = document.createElement('div');
+      toastEl.className = 'config-toast';
+      document.body.appendChild(toastEl);
+    }
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastEl._timer);
+    toastEl._timer = setTimeout(() => {
+      toastEl.classList.remove('show');
+    }, duration);
+  }
+  window.showToast = showToast;
+
+  function returnToMenuFromVersus(reason = '對手已返回主選單（拒絕再來一局）') {
+    if (gameoverOverlay) gameoverOverlay.classList.add('hidden');
+    if (pauseOverlay) pauseOverlay.classList.add('hidden');
+    if (gameHud) gameHud.classList.add('hidden');
+    if (touchControls) touchControls.classList.add('hidden');
+    if (menuOverlay) menuOverlay.classList.remove('hidden');
+    updateMenuBestScores();
+    game.returnToMenu();
+    showToast(`⚠️ ${reason}`);
+    setTimeout(() => game.renderer.resize(), 50);
+  }
+  window.returnToMenuFromVersus = returnToMenuFromVersus;
+
   if (btnMenuPause) {
     btnMenuPause.addEventListener('click', () => {
+      if (game.isVersus && game.netRole && window.networkManager && window.networkManager.isConnected) {
+        window.networkManager.sendRematchReject();
+      }
       pauseOverlay.classList.add('hidden');
       gameHud.classList.add('hidden');
       touchControls.classList.add('hidden');
@@ -326,6 +358,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (btnMenuGameover) {
     btnMenuGameover.addEventListener('click', () => {
+      if (game.isVersus && game.netRole && window.networkManager && window.networkManager.isConnected) {
+        window.networkManager.sendRematchReject();
+      }
       gameoverOverlay.classList.add('hidden');
       gameHud.classList.add('hidden');
       touchControls.classList.add('hidden');
@@ -340,21 +375,6 @@ document.addEventListener('DOMContentLoaded', () => {
   setupConfigLink();
 
   function setupConfigLink() {
-    let toastEl = null;
-    function showToast(msg) {
-      if (!toastEl) {
-        toastEl = document.createElement('div');
-        toastEl.className = 'config-toast';
-        document.body.appendChild(toastEl);
-      }
-      toastEl.textContent = msg;
-      toastEl.classList.add('show');
-      clearTimeout(toastEl._timer);
-      toastEl._timer = setTimeout(() => {
-        toastEl.classList.remove('show');
-      }, 2000);
-    }
-
     // Listen for live updates from settings.html (via BroadcastChannel or storage event)
     if (window.configManager) {
       window.configManager.onChange(() => {

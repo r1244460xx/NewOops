@@ -224,11 +224,34 @@ class Game {
         badge.textContent = '🟡 等待對手...';
         badge.className = 'hud-net-badge waiting';
       }
+      if (this.isVersus && (this.state === 'GAME_OVER' || this.rematchStarting)) {
+        if (typeof window.returnToMenuFromVersus === 'function') {
+          window.returnToMenuFromVersus('對手已離開房間（視為拒絕再來一局）');
+        } else {
+          this.returnToMenu();
+        }
+        return;
+      }
       if (this.netRole === 'host') {
         this.showWaveBanner('OPPONENT LEFT', 'P2 DISCONNECTED', 0);
         this.pauseGame('p2_left');
       } else if (this.netRole === 'client') {
         this.showWaveBanner('HOST LEFT', 'ROOM CLOSED', 0);
+        if (typeof window.returnToMenuFromVersus === 'function') {
+          window.returnToMenuFromVersus('房主已關閉房間，已返回主選單');
+        } else {
+          this.returnToMenu();
+        }
+      }
+    };
+
+    net.onDisconnect = () => {
+      if (this.isVersus && (this.state === 'GAME_OVER' || this.rematchStarting)) {
+        if (typeof window.returnToMenuFromVersus === 'function') {
+          window.returnToMenuFromVersus('連線已中斷，已返回主選單');
+        } else {
+          this.returnToMenu();
+        }
       }
     };
 
@@ -250,13 +273,24 @@ class Game {
       }
     };
 
+    net.onRematchReject = (msg) => {
+      if (this.isVersus) {
+        if (typeof window.returnToMenuFromVersus === 'function') {
+          window.returnToMenuFromVersus('對手已返回主選單（拒絕再來一局）');
+        } else {
+          this.returnToMenu();
+        }
+      }
+    };
+
     net.onRematchSync = (msg) => {
       if (this.netRole === 'client') {
         this.rematchVotes = msg.rematchVotes || { p1: false, p2: false };
         this.updateRematchUi(msg.startingSoon);
         if (msg.startingSoon) {
           this.playSound('gem');
-          setTimeout(() => {
+          if (this.clientRematchTimeout) clearTimeout(this.clientRematchTimeout);
+          this.clientRematchTimeout = setTimeout(() => {
             const goOverlay = document.getElementById('gameover-overlay');
             if (goOverlay) goOverlay.classList.add('hidden');
           }, 1500);
@@ -690,7 +724,9 @@ class Game {
       this.updateRematchUi(true);
       this.playSound('gem');
 
-      setTimeout(() => {
+      if (this.rematchTimeout) clearTimeout(this.rematchTimeout);
+      this.rematchTimeout = setTimeout(() => {
+        this.rematchTimeout = null;
         this.rematchVotes = { p1: false, p2: false };
         this.rematchStarting = false;
         const goOverlay = document.getElementById('gameover-overlay');
@@ -763,6 +799,22 @@ class Game {
   }
 
   returnToMenu() {
+    if (this.rematchTimeout) {
+      clearTimeout(this.rematchTimeout);
+      this.rematchTimeout = null;
+    }
+    if (this.clientRematchTimeout) {
+      clearTimeout(this.clientRematchTimeout);
+      this.clientRematchTimeout = null;
+    }
+    this.rematchVotes = { p1: false, p2: false };
+    this.rematchStarting = false;
+    this.versusScores = { p1: 0, p2: 0 };
+    this.versusWinner = null;
+    this.waitingForOpponent = false;
+    this._gameOverFired = false;
+    this.hideWaveBanner();
+
     if (window.configManager) {
       window.configManager.syncLatest();
     }
@@ -1162,6 +1214,16 @@ class Game {
         }, duration);
       }
     }
+  }
+
+  hideWaveBanner() {
+    const banner = document.getElementById('wave-banner');
+    if (banner) {
+      banner.classList.add('hidden');
+    }
+    clearTimeout(this.bannerTimer);
+    this.activeBanner = null;
+    this.lastShownBannerKey = null;
   }
 
   triggerGameOver() {
