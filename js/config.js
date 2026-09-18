@@ -16,7 +16,7 @@ const DEFAULT_GAME_CONFIG = {
   cannonSpawnInterval: 1.35,
   laserSpawnInterval: 1.45,
   allstarSpawnInterval: 1.2,
-  maxLines: 4,
+  maxLines: 5,
   hopDuration: 0.11,
   wavesPerLevel: 5,
   starCooldown: 6,
@@ -161,8 +161,8 @@ const CONFIG_SCHEMA = [
     max: 5,
     step: 1,
     unit: '條',
-    placeholder: '4',
-    desc: '單波發射直線道具的最大上限（Level 4+ 鎖定上限）'
+    placeholder: '5',
+    desc: '單波發射直線道具的最大上限（Level 5+ 鎖定最多 5 條）'
   },
 
   // 3. 角色與關卡機制

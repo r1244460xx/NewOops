@@ -365,7 +365,7 @@ class ObstacleManager {
    */
   generatePattern(playerOrPlayers) {
     const cfg = window.configManager;
-    const maxLines = cfg ? cfg.get('maxLines') : 4;
+    const maxLines = cfg ? cfg.get('maxLines') : 5;
     const numLines = Math.min(maxLines, Math.max(1, this.wave));
 
     const selectedLines = [];

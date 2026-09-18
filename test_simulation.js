@@ -35,6 +35,11 @@ global.document = {
     getBoundingClientRect: () => ({ width: 600, height: 600, left: 0, top: 0 }),
     click: () => {}
   }),
+  createElement: () => ({
+    width: 600,
+    height: 600,
+    getContext: () => mockCtx
+  }),
   querySelectorAll: () => [],
   addEventListener: () => {}
 };
@@ -69,7 +74,8 @@ const mockCtx = {
   strokeText: () => {},
   createRadialGradient: () => ({
     addColorStop: () => {}
-  })
+  }),
+  drawImage: () => {}
 };
 
 const mockCanvas = {
@@ -152,15 +158,15 @@ if (rockWarn < 0.8 || rockWarn > 0.95 || cannonWarn < 0.65 || cannonWarn > 0.8 |
 console.log('✓ Requirement 2 Passed: Warning duration is successfully set to 0.75 of original time!');
 
 // --- Test 2 & 3: Verify Levels 1, 2, 3, 4 line counts & Player Targeting ---
-console.log('\n[Test 2 & 3] Checking line counts (1, 2, 3, 4) and Player Targeting:');
+console.log('\n[Test 2 & 3] Checking line counts (1, 2, 3, 4, 5) and Player Targeting:');
 
 const levelsToTest = [
   { level: 1, expectedLines: 1 },
   { level: 2, expectedLines: 2 },
   { level: 3, expectedLines: 3 },
   { level: 4, expectedLines: 4 },
-  { level: 5, expectedLines: 4 }, // Capped at 4
-  { level: 10, expectedLines: 4 } // Capped at 4
+  { level: 5, expectedLines: 5 }, // 5 lines at Level 5
+  { level: 10, expectedLines: 5 } // Capped at 5
 ];
 
 for (const test of levelsToTest) {
@@ -169,8 +175,8 @@ for (const test of levelsToTest) {
   // Run 20 trials for each level to ensure probabilistic consistency
   for (let trial = 1; trial <= 20; trial++) {
     // Put player at a random spot
-    const playerCol = Math.floor(Math.random() * 6);
-    const playerRow = Math.floor(Math.random() * 6);
+    const playerCol = Math.floor(Math.random() * game.gridSize);
+    const playerRow = Math.floor(Math.random() * game.gridSize);
     const testPlayer = { col: playerCol, row: playerRow };
 
     // Clear previous warnings

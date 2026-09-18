@@ -10,7 +10,7 @@
   "rockSpeed": 1.7,
   "cannonSpeed": 6.3,
   "laserDuration": 0.28,
-  "maxLines": 4,
+  "maxLines": 5,
   "hopDuration": 0.11,
   "wavesPerLevel": 5,
   "starCooldown": 6,
