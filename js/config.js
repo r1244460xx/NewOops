@@ -25,7 +25,7 @@ const DEFAULT_GAME_CONFIG = {
   versusTargetWins: 3,
   versusHazardMode: 'allstar',
   momentumWindow: 0.32,
-  momentumStepsRequired: 2
+  momentumStepsRequired: 1
 };
 
 const CONFIG_SCHEMA = [
@@ -236,6 +236,18 @@ const CONFIG_SCHEMA = [
     unit: 's',
     placeholder: '0.32',
     desc: '判定同方向連續前進的時間寬容度（格鬥遊戲建議約 0.30s～0.35s）'
+  },
+  {
+    key: 'momentumStepsRequired',
+    category: '雙人對戰設定 (1v1 Versus Settings)',
+    type: 'number',
+    label: '動量累積所需步數 (Momentum Steps Required)',
+    min: 1,
+    max: 3,
+    step: 1,
+    unit: '格',
+    placeholder: '1',
+    desc: '累積衝刺動量所需的連續移動格數（預設 1 格，中間隔一空格即可衝撞）'
   },
   {
     key: 'versusTargetWins',

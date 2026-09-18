@@ -17,6 +17,7 @@
   "nearMissDistance": 0.95,
   "versusCollisionMode": "push",
   "momentumWindow": 0.32,
+  "momentumStepsRequired": 1,
   "versusTargetWins": 3,
   "versusHazardMode": "laser",
   "_updatedAt": 1789553022319

@@ -1000,7 +1000,7 @@ class GameRenderer {
       }
 
       // Momentum / Dash indicator (flaming trail badge) - only when momentum is genuinely active!
-      if (player.momentumSteps >= 2 && (player.momentumTimer > 0 || player.isHopping) && !isDead) {
+      if (player.momentumSteps >= 1 && (player.momentumTimer > 0 || player.isHopping) && !isDead) {
         ctx.save();
         const pulse = 1 + Math.sin(this.bgTime * 14) * 0.1;
         ctx.scale(pulse, pulse);

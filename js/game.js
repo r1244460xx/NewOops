@@ -400,7 +400,7 @@ class Game {
       this.player = this.players[1] || this.players[0];
       for (let i = 0; i < this.players.length; i++) {
         const pl = this.players[i];
-        if (pl.momentumSteps >= 2 && pl.isHopping && (pl.momentumTimer > 0 || pl.momentumTimer === undefined) && !pl.isDead) {
+        if (pl.momentumSteps >= 1 && pl.isHopping && (pl.momentumTimer > 0 || pl.momentumTimer === undefined) && !pl.isDead) {
           this.renderer.spawnAfterimage(pl);
         }
       }
@@ -870,7 +870,7 @@ class Game {
 
     const cfg = window.configManager;
     const momentumWindow = cfg ? (cfg.get('momentumWindow') || 0.32) : 0.32;
-    const stepsRequired = cfg ? (cfg.get('momentumStepsRequired') || 2) : 2;
+    const stepsRequired = cfg ? (cfg.get('momentumStepsRequired') || 1) : 1;
 
     const newCol = p.col + dx;
     const newRow = p.row + dy;
@@ -1053,7 +1053,7 @@ class Game {
     this.sound.playHop();
 
     const oldScreenPos = this.renderer.gridToScreen(p.prevCol, p.prevRow);
-    const isDashing = Boolean(p.momentumSteps >= 2);
+    const isDashing = Boolean(p.momentumSteps >= 1);
     const dustCount = isDashing ? 6 : 3;
     for (let i = 0; i < dustCount; i++) {
       this.renderer.spawnParticle({
@@ -1470,7 +1470,7 @@ class Game {
         }
 
         // Afterimages during active momentum hop
-        if (pl.momentumSteps >= 2 && !pl.isDead && pl.isHopping) {
+        if (pl.momentumSteps >= 1 && !pl.isDead && pl.isHopping) {
           pl.afterimageTimer = (pl.afterimageTimer || 0) + dt;
           if (pl.afterimageTimer >= 0.035) {
             pl.afterimageTimer = 0;
@@ -1588,7 +1588,7 @@ class Game {
     }
 
     // Afterimages during active momentum hop (Single Player)
-    if (this.player.momentumSteps >= 2 && !this.player.isDead && this.player.isHopping && this.player.momentumTimer > 0) {
+    if (this.player.momentumSteps >= 1 && !this.player.isDead && this.player.isHopping && this.player.momentumTimer > 0) {
       this.player.afterimageTimer = (this.player.afterimageTimer || 0) + dt;
       if (this.player.afterimageTimer >= 0.035) {
         this.player.afterimageTimer = 0;
