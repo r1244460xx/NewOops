@@ -18,7 +18,7 @@ class ObstacleManager {
     this.renderer = renderer;
     this.sound = soundEngine;
     this.game = game;
-    this.gridSize = 6;
+    this.gridSize = 8;
 
     this.warnings = [];
     this.obstacles = [];

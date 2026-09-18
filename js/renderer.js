@@ -35,9 +35,9 @@ class GameRenderer {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
 
-    // Grid configuration: 6x6
-    this.gridSize = 6;
-    this.tileSize = 60;
+    // Grid configuration: 8x8
+    this.gridSize = 8;
+    this.tileSize = 55;
     this.boardWidth = 0;
     this.boardHeight = 0;
     this.boardOriginX = 0;
@@ -61,7 +61,7 @@ class GameRenderer {
     // Background animation phase
     this.bgTime = 0;
 
-    // Offscreen Canvas Cache for 6x6 Platform
+    // Offscreen Canvas Cache for 8x8 Platform
     this.platformCanvas = null;
     this.platformCtx = null;
 
@@ -97,8 +97,8 @@ class GameRenderer {
     this.canvas.style.width = size + 'px';
     this.canvas.style.height = size + 'px';
 
-    // Calculate tile dimensions centered on canvas
-    this.tileSize = Math.floor(size * 0.12);
+    // Calculate tile dimensions centered on canvas (leaves ~13% safe margins for warning arrows)
+    this.tileSize = Math.floor((size * 0.74) / this.gridSize);
     this.boardWidth = this.tileSize * this.gridSize;
     this.boardHeight = this.tileSize * this.gridSize;
     this.boardOriginX = Math.floor((this.viewWidth - this.boardWidth) / 2);

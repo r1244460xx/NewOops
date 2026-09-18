@@ -97,6 +97,8 @@ class Game {
     this.netBroadcastTimer = 0;
     this.netBroadcastInterval = 1 / 30;
 
+    this.gridSize = 8;
+
     this.loadHighScores();
 
     // Start animation loop
@@ -512,7 +514,7 @@ class Game {
 
     this.isVersus = false;
     this.state = 'PLAYING';
-    this.player = this.createPlayer(2, 3, 0, false);
+    this.player = this.createPlayer(3, 3, 0, false);
     this.players = [this.player];
 
     this.obstacleManager.reset(mode);
@@ -525,8 +527,8 @@ class Game {
   }
 
   setupVersusBoard() {
-    const p1 = this.createPlayer(1, 3, 0, true);
-    const p2 = this.createPlayer(4, 3, 1, true);
+    const p1 = this.createPlayer(2, 3, 0, true);
+    const p2 = this.createPlayer(5, 3, 1, true);
     this.players = [p1, p2];
     this.player = this.netRole === 'client' ? p2 : p1;
     this.obstacleManager.reset('versus');
@@ -585,9 +587,9 @@ class Game {
     this.versusRoundDelay = 0;
     this.lastShownBannerKey = null;
 
-    // Symmetrical spawns for P1 (Blue) at (1, 3) and P2 (Red) at (4, 3) on the 6x6 grid
-    const p1 = this.createPlayer(1, 3, 0, true);
-    const p2 = this.createPlayer(4, 3, 1, true);
+    // Symmetrical spawns for P1 (Blue) at (2, 3) and P2 (Red) at (5, 3) on the 8x8 grid
+    const p1 = this.createPlayer(2, 3, 0, true);
+    const p2 = this.createPlayer(5, 3, 1, true);
     this.players = [p1, p2];
     this.player = this.netRole === 'client' ? p2 : p1;
 
@@ -875,8 +877,8 @@ class Game {
     const newCol = p.col + dx;
     const newRow = p.row + dy;
 
-    // Clamped inside 6x6 grid [0..5]
-    if (newCol < 0 || newCol > 5 || newRow < 0 || newRow > 5) {
+    // Clamped inside grid [0..gridSize-1]
+    if (newCol < 0 || newCol >= this.gridSize || newRow < 0 || newRow >= this.gridSize) {
       // Hitting grid boundary interrupts and clears momentum
       p.momentumSteps = 0;
       p.momentumTimer = 0;
@@ -952,7 +954,7 @@ class Game {
           if (hasMomentum) {
             const pushCol = opponent.col + dx;
             const pushRow = opponent.row + dy;
-            if (pushCol >= 0 && pushCol <= 5 && pushRow >= 0 && pushRow <= 5) {
+            if (pushCol >= 0 && pushCol < this.gridSize && pushRow >= 0 && pushRow < this.gridSize) {
               // Opponent is knocked away!
               opponent.prevCol = opponent.col;
               opponent.prevRow = opponent.row;
@@ -1166,8 +1168,8 @@ class Game {
 
   spawnStar() {
     if (this.collectibles.length >= 2) return;
-    const col = Math.floor(Math.random() * 6);
-    const row = Math.floor(Math.random() * 6);
+    const col = Math.floor(Math.random() * this.gridSize);
+    const row = Math.floor(Math.random() * this.gridSize);
 
     if (this.isVersus) {
       if (this.players.some(p => p.col === col && p.row === row)) return;
