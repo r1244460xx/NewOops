@@ -31,6 +31,7 @@ class ObstacleManager {
     this.isWaveComplete = false;
     this.hasActiveWarnings = false;
     this.waitingForLevelClear = false;
+    this.lastSafeCells = null;
   }
 
   playSound(name) {
@@ -78,14 +79,14 @@ class ObstacleManager {
     return basePlan;
   }
 
-  getInterWaveBreakTime() {
+  getPreWarningLeadTime() {
     const cfg = window.configManager;
-    return cfg ? Math.max(0, Number(cfg.get('interWaveBreakTime'))) : 0.0;
+    return cfg ? Math.max(0, Number(cfg.get('preWarningLeadTime'))) : 0.25;
   }
 
   getLevelBreakTime() {
     const cfg = window.configManager;
-    return cfg ? Math.max(0, Number(cfg.get('levelBreakTime'))) : 0.5;
+    return cfg ? Math.max(0, Number(cfg.get('levelBreakTime'))) : 0.0;
   }
 
   reset(mode = 'rock') {
@@ -101,6 +102,9 @@ class ObstacleManager {
     this.hasActiveWarnings = false;
     this.waitingForSubWave = false;
     this.waitingForLevelClear = false;
+    this.currentBatchId = 1;
+    this.leadTriggeredBatchId = 0;
+    this.lastSafeCells = null;
   }
 
   advanceWave(wave) {
@@ -113,6 +117,9 @@ class ObstacleManager {
     this.waitingForLevelClear = false;
     this.interWaveCooldown = 0;
     this.spawnCooldown = this.getLevelBreakTime();
+    this.currentBatchId = 1;
+    this.leadTriggeredBatchId = 0;
+    this.lastSafeCells = null;
   }
 
   setWave(wave) {
@@ -127,6 +134,9 @@ class ObstacleManager {
     this.hasActiveWarnings = false;
     this.waitingForSubWave = false;
     this.waitingForLevelClear = false;
+    this.currentBatchId = 1;
+    this.leadTriggeredBatchId = 0;
+    this.lastSafeCells = null;
   }
 
   update(dt, player) {
@@ -168,53 +178,45 @@ class ObstacleManager {
       }
     }
 
-    // 3. Sub-wave continuous trigger:
-    // When previous sub-wave warnings end and lasers/projectiles fire onto the board:
-    if (this.hasActiveWarnings && this.warnings.length === 0) {
-      this.hasActiveWarnings = false;
-      if (this.waveSubIndex < this.currentWavePlan.length) {
-        const breakTime = this.getInterWaveBreakTime();
-        if (breakTime > 0) {
-          this.interWaveCooldown = breakTime;
-          this.waitingForSubWave = true;
-        } else {
-          // 0 delay (default): AT THE EXACT MOMENT of firing, next sub-wave warning starts immediately!
-          const nextLines = this.currentWavePlan[this.waveSubIndex];
-          this.generatePattern(player, nextLines);
-          this.waveSubIndex++;
-          this.hasActiveWarnings = true;
+    // 3. Pre-warning lead trigger for continuous sub-waves (strictly ONLY within the same level):
+    const leadTime = this.getPreWarningLeadTime();
+    const currentWarnings = this.warnings.filter(w => w.batchId === this.currentBatchId);
+
+    // Only trigger if there are still more sub-waves in the current level!
+    if (this.waveSubIndex < this.currentWavePlan.length) {
+      if (currentWarnings.length > 0 && this.leadTriggeredBatchId < this.currentBatchId) {
+        const minTimer = Math.min(...currentWarnings.map(w => w.timer));
+        if (minTimer <= leadTime) {
+          this.leadTriggeredBatchId = this.currentBatchId;
+          this.triggerNextWave(player);
         }
-      } else {
-        // All sub-waves in this level have been dispatched! Wait for board clear.
+      } else if (currentWarnings.length === 0 && this.hasActiveWarnings && this.leadTriggeredBatchId < this.currentBatchId) {
+        this.leadTriggeredBatchId = this.currentBatchId;
+        this.triggerNextWave(player);
+      }
+    } else {
+      // All sub-waves in this level have been dispatched!
+      // When all warnings of this last sub-wave are gone and projectiles fire, wait for clear!
+      if (this.hasActiveWarnings && currentWarnings.length === 0) {
+        this.hasActiveWarnings = false;
         this.waitingForLevelClear = true;
       }
     }
 
-    // Inter-wave cooldown between sub-waves if breakTime > 0
-    if (this.waitingForSubWave) {
-      this.interWaveCooldown -= dt;
-      if (this.interWaveCooldown <= 0) {
-        this.waitingForSubWave = false;
-        const nextLines = this.currentWavePlan[this.waveSubIndex];
-        this.generatePattern(player, nextLines);
-        this.waveSubIndex++;
-        this.hasActiveWarnings = true;
-      }
-    }
-
-    // 4. Initial launch of Level (after level break countdown):
+    // 4. Initial launch of Level (after level break countdown or initial start):
     if (!this.isWaveComplete && !this.waitingForLevelClear && !this.hasActiveWarnings && this.waveSubIndex === 0) {
       this.spawnCooldown -= dt;
       if (this.spawnCooldown <= 0) {
+        this.currentBatchId = 1;
+        this.leadTriggeredBatchId = 0;
         const firstLines = this.currentWavePlan[0];
-        this.generatePattern(player, firstLines);
+        this.generatePattern(player, firstLines, this.currentBatchId);
         this.waveSubIndex = 1;
         this.hasActiveWarnings = true;
       }
     }
 
-    // 5. Level completion check:
-    // When all sub-waves have fired, once remaining projectiles clear the board, level is complete!
+    // 5. Level completion check (when waiting for board clear):
     if (this.waitingForLevelClear) {
       if (this.warnings.length === 0 && this.obstacles.length === 0) {
         this.waitingForLevelClear = false;
@@ -223,28 +225,19 @@ class ObstacleManager {
     }
   }
 
-  getSpawnInterval() {
-    const cfg = window.configManager;
-    let base = 1.35;
-    if (this.currentMode === 'rock') {
-      base = cfg ? cfg.get('rockSpawnInterval') : 1.6;
-    } else if (this.currentMode === 'cannon') {
-      base = cfg ? cfg.get('cannonSpawnInterval') : 1.35;
-    } else if (this.currentMode === 'laser') {
-      base = cfg ? cfg.get('laserSpawnInterval') : 1.45;
-    } else if (this.currentMode === 'versus') {
-      const vHazard = cfg ? cfg.get('versusHazardMode') : 'allstar';
-      if (vHazard === 'rock') base = cfg ? cfg.get('rockSpawnInterval') : 1.6;
-      else if (vHazard === 'cannon') base = cfg ? cfg.get('cannonSpawnInterval') : 1.35;
-      else if (vHazard === 'laser') base = cfg ? cfg.get('laserSpawnInterval') : 1.45;
-      else base = cfg ? cfg.get('allstarSpawnInterval') : 1.2;
+  triggerNextWave(player) {
+    if (this.waveSubIndex < this.currentWavePlan.length) {
+      // Next sub-wave strictly within current level plan
+      this.currentBatchId++;
+      const nextLines = this.currentWavePlan[this.waveSubIndex];
+      this.waveSubIndex++;
+      this.generatePattern(player, nextLines, this.currentBatchId);
+      this.hasActiveWarnings = true;
     } else {
-      // All-Star mode
-      base = cfg ? cfg.get('allstarSpawnInterval') : 1.2;
+      // Completed all sub-waves of current level plan: wait for board clear and level break!
+      this.hasActiveWarnings = false;
+      this.waitingForLevelClear = true;
     }
-
-    const waveFactor = Math.min(0.35, (this.wave - 1) * 0.03);
-    return Math.max(0.35, base - waveFactor);
   }
 
   // Warning duration set using configManager parameters
@@ -266,7 +259,7 @@ class ObstacleManager {
     return 0.75;
   }
 
-  addWarning(type, side, index) {
+  addWarning(type, side, index, batchId = 0) {
     const exists = this.warnings.some(w => w.side === side && w.index === index && w.type === type);
     if (exists) return;
 
@@ -279,7 +272,8 @@ class ObstacleManager {
       direction,
       timer: duration,
       maxTimer: duration,
-      soundPlayed: false
+      soundPlayed: false,
+      batchId: batchId || this.currentBatchId || 0
     });
     this.playSound('playWarning');
   }
@@ -496,39 +490,61 @@ class ObstacleManager {
    * 6. Level 6+: Each wave fires up to 5 lines. Prior sub-waves fire 5 lines,
    *    and the last sub-wave fires (level % 5 === 0 ? 5 : level % 5) lines.
    */
-  generatePattern(playerOrPlayers, requestedLines) {
+  generatePattern(playerOrPlayers, requestedLines, batchId = 0) {
     const cfg = window.configManager;
     const maxLines = cfg ? cfg.get('maxLines') : 5;
     let numLines = typeof requestedLines === 'number' ? requestedLines : Math.min(maxLines, Math.max(1, this.wave));
     numLines = Math.min(maxLines, Math.max(1, numLines));
 
-    const selectedLines = [];
-    const usedH = new Set();
-    const usedV = new Set();
+    const alivePlayers = Array.isArray(playerOrPlayers)
+      ? playerOrPlayers.filter(p => p && !p.isDead)
+      : (playerOrPlayers && !playerOrPlayers.isDead ? [playerOrPlayers] : []);
 
-    const addTargetForPlayer = (pl) => {
-      const pCol = pl ? pl.col : Math.floor(Math.random() * this.gridSize);
-      const pRow = pl ? pl.row : Math.floor(Math.random() * this.gridSize);
-      const hAvailable = !usedH.has(pRow);
-      const vAvailable = !usedV.has(pCol);
+    // Determine the effective reference point (origin) for each alive player:
+    // If this is a chained sub-wave within the same level, each player must have been dodging
+    // into one of the previous sub-wave's safe cells. Otherwise, their current grid tile is their origin.
+    const playerOrigins = alivePlayers.map(p => {
+      if (this.lastSafeCells && this.lastSafeCells.length > 0) {
+        let closest = this.lastSafeCells[0];
+        let minDist = Infinity;
+        for (const sc of this.lastSafeCells) {
+          const d = Math.abs(p.col - sc.col) + Math.abs(p.row - sc.row);
+          if (d < minDist) {
+            minDist = d;
+            closest = sc;
+          }
+        }
+        return closest;
+      }
+      return { col: p.col, row: p.row };
+    });
 
-      let targetH = Math.random() < 0.5;
-      if (hAvailable && !vAvailable) targetH = true;
-      else if (!hAvailable && vAvailable) targetH = false;
-      else if (!hAvailable && !vAvailable) return null; // Both lines already occupied
+    const generateSingleCandidate = () => {
+      const selectedLines = [];
+      const usedH = new Set();
+      const usedV = new Set();
 
-      const line = {
-        dir: targetH ? 'horizontal' : 'vertical',
-        side: targetH ? (Math.random() < 0.5 ? 'left' : 'right') : (Math.random() < 0.5 ? 'top' : 'bottom'),
-        index: targetH ? pRow : pCol
+      const addTargetForPlayer = (pl) => {
+        const pCol = pl ? pl.col : Math.floor(Math.random() * this.gridSize);
+        const pRow = pl ? pl.row : Math.floor(Math.random() * this.gridSize);
+        const hAvailable = !usedH.has(pRow);
+        const vAvailable = !usedV.has(pCol);
+
+        let targetH = Math.random() < 0.5;
+        if (hAvailable && !vAvailable) targetH = true;
+        else if (!hAvailable && vAvailable) targetH = false;
+        else if (!hAvailable && !vAvailable) return null; // Both lines already occupied
+
+        const line = {
+          dir: targetH ? 'horizontal' : 'vertical',
+          side: targetH ? (Math.random() < 0.5 ? 'left' : 'right') : (Math.random() < 0.5 ? 'top' : 'bottom'),
+          index: targetH ? pRow : pCol
+        };
+        if (targetH) usedH.add(pRow);
+        else usedV.add(pCol);
+        return line;
       };
-      if (targetH) usedH.add(pRow);
-      else usedV.add(pCol);
-      return line;
-    };
 
-    if (Array.isArray(playerOrPlayers)) {
-      const alivePlayers = playerOrPlayers.filter(p => p && !p.isDead);
       if (alivePlayers.length >= 2 && numLines >= 2) {
         // Multi-targeting: Target P1 and P2
         const l0 = addTargetForPlayer(alivePlayers[0]);
@@ -540,63 +556,110 @@ class ObstacleManager {
         const l = addTargetForPlayer(targetPl);
         if (l) selectedLines.push(l);
       }
-    } else {
-      const l = addTargetForPlayer(playerOrPlayers);
-      if (l) selectedLines.push(l);
-    }
 
-    // Build candidate pool of remaining available rows and columns
-    const candidates = [];
-    for (let r = 0; r < this.gridSize; r++) {
-      if (!usedH.has(r)) {
-        candidates.push({
-          dir: 'horizontal',
-          side: Math.random() < 0.5 ? 'left' : 'right',
-          index: r
-        });
+      // Build candidate pool of remaining available rows and columns
+      const candidates = [];
+      for (let r = 0; r < this.gridSize; r++) {
+        if (!usedH.has(r)) {
+          candidates.push({
+            dir: 'horizontal',
+            side: Math.random() < 0.5 ? 'left' : 'right',
+            index: r
+          });
+        }
+      }
+      for (let c = 0; c < this.gridSize; c++) {
+        if (!usedV.has(c)) {
+          candidates.push({
+            dir: 'vertical',
+            side: Math.random() < 0.5 ? 'top' : 'bottom',
+            index: c
+          });
+        }
+      }
+
+      // Shuffle candidates randomly
+      for (let i = candidates.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+      }
+
+      // Pick remaining lines up to numLines without duplicating row or column
+      for (const cand of candidates) {
+        if (selectedLines.length >= numLines) break;
+        if (cand.dir === 'horizontal' && !usedH.has(cand.index)) {
+          usedH.add(cand.index);
+          selectedLines.push(cand);
+        } else if (cand.dir === 'vertical' && !usedV.has(cand.index)) {
+          usedV.add(cand.index);
+          selectedLines.push(cand);
+        }
+      }
+
+      // Calculate the resulting safe cells
+      const safeCells = [];
+      for (let c = 0; c < this.gridSize; c++) {
+        if (usedV.has(c)) continue;
+        for (let r = 0; r < this.gridSize; r++) {
+          if (usedH.has(r)) continue;
+          safeCells.push({ col: c, row: r });
+        }
+      }
+
+      // Calculate maximum distance across all alive players to their nearest safe cell
+      let maxPlayerDist = 0;
+      if (playerOrigins.length > 0 && safeCells.length > 0) {
+        for (const origin of playerOrigins) {
+          let pMinDist = Infinity;
+          for (const sc of safeCells) {
+            const d = Math.abs(origin.col - sc.col) + Math.abs(origin.row - sc.row);
+            if (d < pMinDist) pMinDist = d;
+          }
+          if (pMinDist > maxPlayerDist) {
+            maxPlayerDist = pMinDist;
+          }
+        }
+      }
+
+      return {
+        selectedLines,
+        safeCells,
+        maxPlayerDist
+      };
+    };
+
+    // Anti-Trap Multi-Player Optimization Loop:
+    // Try candidates to find a pattern where EVERY alive player has a safe cell within <= 3 steps.
+    let bestCandidate = null;
+    const maxAttempts = 35;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const candidate = generateSingleCandidate();
+      if (!bestCandidate || candidate.maxPlayerDist < bestCandidate.maxPlayerDist) {
+        bestCandidate = candidate;
+      }
+      // If every player can reach a safe cell within 3 steps, accept immediately!
+      if (candidate.maxPlayerDist <= 3) {
+        bestCandidate = candidate;
+        break;
       }
     }
-    for (let c = 0; c < this.gridSize; c++) {
-      if (!usedV.has(c)) {
-        candidates.push({
-          dir: 'vertical',
-          side: Math.random() < 0.5 ? 'top' : 'bottom',
-          index: c
-        });
-      }
-    }
 
-    // Shuffle candidates randomly
-    for (let i = candidates.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
-    }
-
-    // Pick remaining lines up to numLines without duplicating row or column
-    for (const cand of candidates) {
-      if (selectedLines.length >= numLines) break;
-      if (cand.dir === 'horizontal' && !usedH.has(cand.index)) {
-        usedH.add(cand.index);
-        selectedLines.push(cand);
-      } else if (cand.dir === 'vertical' && !usedV.has(cand.index)) {
-        usedV.add(cand.index);
-        selectedLines.push(cand);
-      }
-    }
+    const chosen = bestCandidate || generateSingleCandidate();
+    this.lastSafeCells = chosen.safeCells;
 
     // Spawn warnings for all selected lines simultaneously
     const obstacleTypes = ['rock', 'cannon', 'laser'];
-    for (const line of selectedLines) {
+    for (const line of chosen.selectedLines) {
       let type = this.currentMode;
-      if (type === 'allstar' || type === 'versus') {
-        const vHazard = (type === 'versus' && cfg) ? (cfg.get('versusHazardMode') || 'allstar') : type;
+      if (type === 'allstar' || type === 'versus' || type === 'versus4p' || type === 'versus3p') {
+        const vHazard = ((type === 'versus' || type === 'versus4p' || type === 'versus3p') && cfg) ? (cfg.get('versusHazardMode') || 'allstar') : type;
         if (vHazard === 'allstar' || type === 'allstar') {
           type = obstacleTypes[Math.floor(Math.random() * obstacleTypes.length)];
         } else {
           type = vHazard;
         }
       }
-      this.addWarning(type, line.side, line.index);
+      this.addWarning(type, line.side, line.index, batchId || this.currentBatchId || 0);
     }
   }
 

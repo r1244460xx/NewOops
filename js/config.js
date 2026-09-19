@@ -12,14 +12,11 @@ const DEFAULT_GAME_CONFIG = {
   rockSpeed: 1.7,
   cannonSpeed: 6.3,
   laserDuration: 0.28,
-  rockSpawnInterval: 1.6,
-  cannonSpawnInterval: 1.35,
-  laserSpawnInterval: 1.45,
-  allstarSpawnInterval: 1.2,
   maxLines: 5,
   hopDuration: 0.11,
+  singlePlayerLives: 3,
+  preWarningLeadTime: 0.25,
   wavesPerLevel: 1,
-  interWaveBreakTime: 0.0,
   levelBreakTime: 0.5,
   starCooldown: 6,
   nearMissDistance: 0.95,
@@ -77,48 +74,15 @@ const CONFIG_SCHEMA = [
     desc: '雷射蓄力紅線閃爍的基準秒數'
   },
   {
-    key: 'rockSpawnInterval',
+    key: 'preWarningLeadTime',
     category: '預警與節奏 (Timing & Warnings)',
-    label: '慢速巨石波次間隔 (Rock Spawn Interval)',
-    min: 0.3,
-    max: 4.0,
+    label: '下一波提前預警時間 (Next Wave Lead Time)',
+    min: 0.0,
+    max: 1.5,
     step: 0.05,
     unit: '秒',
-    placeholder: '1.60',
-    desc: '巨石模式下，兩波巨石攻擊之間的冷卻間隔'
-  },
-  {
-    key: 'cannonSpawnInterval',
-    category: '預警與節奏 (Timing & Warnings)',
-    label: '中速砲彈波次間隔 (Cannon Spawn Interval)',
-    min: 0.3,
-    max: 4.0,
-    step: 0.05,
-    unit: '秒',
-    placeholder: '1.35',
-    desc: '砲彈模式下，兩波砲彈攻擊之間的冷卻間隔'
-  },
-  {
-    key: 'laserSpawnInterval',
-    category: '預警與節奏 (Timing & Warnings)',
-    label: '快速雷射波次間隔 (Laser Spawn Interval)',
-    min: 0.3,
-    max: 4.0,
-    step: 0.05,
-    unit: '秒',
-    placeholder: '1.45',
-    desc: '雷射模式下，兩波雷射攻擊之間的冷卻間隔'
-  },
-  {
-    key: 'allstarSpawnInterval',
-    category: '預警與節奏 (Timing & Warnings)',
-    label: '全明星波次間隔 (All-Star Spawn Interval)',
-    min: 0.3,
-    max: 4.0,
-    step: 0.05,
-    unit: '秒',
-    placeholder: '1.20',
-    desc: '全明星大亂鬥模式下，兩波複合攻擊之間的冷卻間隔'
+    placeholder: '0.25',
+    desc: '同一 Level 內包含多個連續波次時（例如 Level 6 或 wavesPerLevel>1），當前波次的預警倒數至剩餘此秒數時（預設 0.25 秒），系統會立即提前繪製下一波的紅箭頭 / 紅線預警。各 Level 之間則維持 Level Break Time 的清場與休息時間。'
   },
 
   // 2. 飛行道具與難度
@@ -180,6 +144,17 @@ const CONFIG_SCHEMA = [
     desc: 'Mr. Oops 從一格跳到鄰格的時間（越小越敏捷）'
   },
   {
+    key: 'singlePlayerLives',
+    category: '角色與關卡 (Player & Mechanics)',
+    label: '單機模式初始生命 (Single Player Lives)',
+    min: 1,
+    max: 10,
+    step: 1,
+    unit: '條',
+    placeholder: '3',
+    desc: '單機模式擁有的初始生命條數（預設 3 條命）。掛掉時若仍有剩餘生命，角色將原地復活重新挑戰該 Level，不重置關卡等級與分數；全部生命耗盡時才結算 Game Over。'
+  },
+  {
     key: 'wavesPerLevel',
     category: '角色與關卡 (Player & Mechanics)',
     label: '升級所需波數 (Waves Per Level)',
@@ -189,17 +164,6 @@ const CONFIG_SCHEMA = [
     unit: '波',
     placeholder: '1',
     desc: '每一等級需要避開的攻擊波次總數（閃避完此波數後升至下一等級）'
-  },
-  {
-    key: 'interWaveBreakTime',
-    category: '角色與關卡 (Player & Mechanics)',
-    label: '同關波段間隔喘息 (Inter-Wave Break Time)',
-    min: 0.0,
-    max: 3.0,
-    step: 0.1,
-    unit: '秒',
-    placeholder: '0.0',
-    desc: '同一 Level 內包含多個波次時（例如 Level 6 或 wavesPerLevel>1），第一波發射當下到第二波預警出現之間的間隔時間。設為 0.0 代表第一波發射當下立即出現第二波預警（零喘息連鎖）。'
   },
   {
     key: 'levelBreakTime',
