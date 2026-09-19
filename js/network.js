@@ -32,6 +32,10 @@ class NetworkManager {
     this.onPing = null;
 
     // WebRTC P2P State
+    this.mode = 'versus'; // 'versus' | 'versus4p'
+    this.playerIndex = 0; // 0 for host/P1, 1 for P2, 2 for P3, 3 for P4
+    this.clientId = null;
+    this.peerClients = {}; // clientId -> { pc, dc, playerIndex, isConnected, pendingCandidates: [] }
     this.pc = null;
     this.dc = null;
     this.isP2PActive = false;
@@ -107,11 +111,45 @@ class NetworkManager {
     return { ip: location.hostname || '127.0.0.1', port: location.port || 8081, url: location.origin };
   }
 
-  connect(targetHost, role = 'host', roomCode = '1234') {
+  get isMultiClient() {
+    return this.mode === 'versus4p' || this.mode === 'versus3p';
+  }
+
+  get connectedClientCount() {
+    if (this.mode === 'versus') {
+      return (this.opponentConnected || this.isP2PActive) ? 1 : 0;
+    }
+    let count = 0;
+    if (this.peerClients) {
+      for (const cid in this.peerClients) {
+        if (this.peerClients[cid] && this.peerClients[cid].isConnected) count++;
+      }
+    }
+    return count;
+  }
+
+  isPlayerConnected(playerIndex) {
+    if (playerIndex === 0) return true; // Host
+    if (this.mode === 'versus') {
+      return playerIndex === 1 && (this.opponentConnected || this.isP2PActive);
+    }
+    if (this.peerClients) {
+      for (const cid in this.peerClients) {
+        const client = this.peerClients[cid];
+        if (client && client.playerIndex === playerIndex && client.isConnected) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  connect(targetHost, role = 'host', roomCode = '1234', mode = 'versus') {
     this.disconnect();
 
     this.role = role;
     this.roomCode = (roomCode || '1234').trim();
+    this.mode = mode || 'versus';
 
     let wsUrl = '';
     if (targetHost) {
@@ -126,7 +164,7 @@ class NetworkManager {
       wsUrl = `${proto}${location.host}/ws`;
     }
 
-    console.log(`[Network] Connecting to signaling server ${wsUrl} as ${role} for room ${this.roomCode}...`);
+    console.log(`[Network] Connecting to signaling server ${wsUrl} as ${role} (mode: ${this.mode}) for room ${this.roomCode}...`);
 
     try {
       this.ws = new WebSocket(wsUrl);
@@ -141,7 +179,8 @@ class NetworkManager {
       this.sendSignaling({
         action: 'join',
         role: this.role,
-        room: this.roomCode
+        room: this.roomCode,
+        mode: this.mode
       });
 
       // WebSocket keepalive ping every 10s
@@ -236,6 +275,91 @@ class NetworkManager {
     }
   }
 
+  // Multi-peer WebRTC Star Topology for 4P Mode
+  async startP2PForClient(clientId, playerIndex) {
+    if (!clientId) return;
+    console.log(`[WebRTC] Host starting P2P handshake for client ${clientId} (P${playerIndex + 1})...`);
+    try {
+      const pc = new RTCPeerConnection(RTC_CONFIG);
+      const peer = {
+        clientId,
+        playerIndex,
+        pc,
+        dc: null,
+        isConnected: false,
+        pendingCandidates: []
+      };
+      this.peerClients[clientId] = peer;
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          this.sendSignaling({
+            type: 'signal_candidate',
+            targetClientId: clientId,
+            candidate: event.candidate
+          });
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        console.log(`[WebRTC] Peer ${clientId} ICE state:`, pc.iceConnectionState);
+        if (['failed', 'disconnected', 'closed'].includes(pc.iceConnectionState)) {
+          console.warn(`[WebRTC] Peer ${clientId} disconnected`);
+          if (peer.isConnected) {
+            peer.isConnected = false;
+            delete this.peerClients[clientId];
+            if (this.onOpponentLeft) this.onOpponentLeft({ clientId, playerIndex });
+          }
+        }
+      };
+
+      const dc = pc.createDataChannel(`mroops_p${playerIndex + 1}`, { ordered: true });
+      peer.dc = dc;
+
+      dc.onopen = () => {
+        console.log(`[WebRTC] ⚡ DataChannel OPEN for ${clientId} (P${playerIndex + 1})!`);
+        peer.isConnected = true;
+        this.isP2PActive = true;
+        if (this.onP2PConnected) this.onP2PConnected({ clientId, playerIndex });
+      };
+
+      dc.onclose = () => {
+        console.log(`[WebRTC] DataChannel closed for ${clientId}`);
+        peer.isConnected = false;
+        delete this.peerClients[clientId];
+        if (this.onOpponentLeft) this.onOpponentLeft({ clientId, playerIndex });
+      };
+
+      dc.onerror = (err) => {
+        console.warn(`[WebRTC] DataChannel error for ${clientId}:`, err);
+      };
+
+      dc.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.type === 'input') {
+            msg.playerIndex = playerIndex;
+          }
+          this.handleMessage(msg);
+        } catch (err) {
+          console.error('[WebRTC] Error parsing DataChannel packet from client:', err);
+        }
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      console.log(`[WebRTC] Host sending signal_offer to ${clientId}...`);
+      this.sendSignaling({
+        type: 'signal_offer',
+        targetClientId: clientId,
+        sdp: pc.localDescription
+      });
+    } catch (err) {
+      console.error(`[WebRTC] Host failed to initiate P2P for ${clientId}:`, err);
+    }
+  }
+
   async handleSignalOffer(msg) {
     this.cleanupP2P();
     console.log('[WebRTC] Client received signal_offer, creating answer...');
@@ -261,6 +385,7 @@ class NetworkManager {
       console.log('[WebRTC] Client sending signal_answer via WebSocket...');
       this.sendSignaling({
         type: 'signal_answer',
+        targetClientId: 'host',
         sdp: this.pc.localDescription
       });
     } catch (err) {
@@ -286,6 +411,7 @@ class NetworkManager {
       if (event.candidate) {
         this.sendSignaling({
           type: 'signal_candidate',
+          targetClientId: 'host',
           candidate: event.candidate
         });
       }
@@ -388,50 +514,99 @@ class NetworkManager {
       return;
     }
     if (type === 'signal_answer') {
-      this.handleSignalAnswer(msg);
+      const fromId = msg.fromClientId;
+      if (fromId && this.peerClients && this.peerClients[fromId]) {
+        const peer = this.peerClients[fromId];
+        peer.pc.setRemoteDescription(new RTCSessionDescription(msg.sdp)).then(() => {
+          while (peer.pendingCandidates && peer.pendingCandidates.length > 0) {
+            const cand = peer.pendingCandidates.shift();
+            peer.pc.addIceCandidate(new RTCIceCandidate(cand)).catch(console.warn);
+          }
+        }).catch(err => console.error('[WebRTC] Error setting answer for peer:', err));
+      } else {
+        this.handleSignalAnswer(msg);
+      }
       return;
     }
     if (type === 'signal_candidate') {
-      this.handleSignalCandidate(msg);
+      const fromId = msg.fromClientId;
+      if (fromId && this.peerClients && this.peerClients[fromId]) {
+        const peer = this.peerClients[fromId];
+        if (peer.pc && peer.pc.remoteDescription) {
+          peer.pc.addIceCandidate(new RTCIceCandidate(msg.candidate)).catch(console.warn);
+        } else if (peer.pendingCandidates) {
+          peer.pendingCandidates.push(msg.candidate);
+        }
+      } else {
+        this.handleSignalCandidate(msg);
+      }
       return;
     }
 
     // 2. Room & Connection Events
     if (type === 'joined') {
       this.isInRoom = true;
+      this.mode = msg.mode || this.mode;
+      if (this.role === 'client') {
+        this.playerIndex = msg.playerIndex !== undefined ? msg.playerIndex : 1;
+        this.clientId = msg.clientId;
+      } else if (this.role === 'host') {
+        this.playerIndex = 0;
+        this.clientId = 'host';
+      }
       this.opponentConnected = Boolean(msg.opponent_present || msg.host_present);
       if (this.onJoined) this.onJoined(msg);
       console.log('[Network] Room joined:', msg);
 
-      // If Host joins and Client is already in room, trigger P2P handshake
-      if (this.role === 'host' && msg.opponent_present) {
-        this.startP2PAsHost();
+      // If Host joins and Client(s) already in room
+      if (this.role === 'host') {
+        if (this.isMultiClient) {
+          if (Array.isArray(msg.clients)) {
+            msg.clients.forEach((cid, idx) => {
+              this.startP2PForClient(cid, idx + 1);
+            });
+          }
+        } else if (msg.opponent_present) {
+          this.startP2PAsHost();
+        }
       }
     } else if (type === 'opponent_joined') {
       this.opponentConnected = true;
-      if (this.onOpponentJoined) this.onOpponentJoined(msg);
-      console.log('[Network] Opponent joined room!');
-
-      // Host triggers P2P handshake when Client joins
       if (this.role === 'host') {
-        this.startP2PAsHost();
+        if (this.isMultiClient) {
+          this.startP2PForClient(msg.clientId, msg.playerIndex);
+        } else {
+          this.startP2PAsHost();
+        }
       }
+      if (this.onOpponentJoined) this.onOpponentJoined(msg);
+      console.log('[Network] Opponent joined room!', msg);
     } else if (type === 'host_ready') {
       this.opponentConnected = true;
       if (this.onHostReady) this.onHostReady(msg);
       console.log('[Network] Host is ready!');
     } else if (type === 'opponent_left') {
-      this.opponentConnected = false;
-      this.cleanupP2P();
-      if (this.onOpponentLeft) this.onOpponentLeft(msg);
-      console.log('[Network] Opponent left room');
+      if (this.isMultiClient && this.role === 'host') {
+        const cid = msg.clientId;
+        if (cid && this.peerClients && this.peerClients[cid]) {
+          try { this.peerClients[cid].pc.close(); } catch(e) {}
+          delete this.peerClients[cid];
+        }
+        if (this.onOpponentLeft) this.onOpponentLeft(msg);
+      } else {
+        this.opponentConnected = false;
+        this.cleanupP2P();
+        if (this.onOpponentLeft) this.onOpponentLeft(msg);
+      }
+      console.log('[Network] Opponent left room', msg);
     }
 
     // 3. Gameplay Messages (Delivered over WebRTC P2P)
     else if (type === 'state') {
       if (this.onState) this.onState(msg);
     } else if (type === 'input') {
-      if (this.onInput) this.onInput(msg.payload);
+      const pIdx = (msg.playerIndex !== undefined) ? msg.playerIndex : (msg.payload && msg.payload.playerIndex !== undefined ? msg.payload.playerIndex : 1);
+      if (this.onInput) this.onInput(msg.payload, pIdx);
     } else if (type === 'pause_request') {
       if (this.onPauseRequest) this.onPauseRequest(msg);
     } else if (type === 'resume_request') {
@@ -491,6 +666,7 @@ class NetworkManager {
     if (this.role === 'client') {
       this.send({
         type: 'input',
+        playerIndex: this.playerIndex,
         payload: { dx, dy }
       });
     }
@@ -526,10 +702,20 @@ class NetworkManager {
 
   sendState(stateSnapshot) {
     if (this.role === 'host') {
-      this.send({
+      const data = {
         type: 'state',
         ...stateSnapshot
-      });
+      };
+      if (this.peerClients && Object.keys(this.peerClients).length > 0) {
+        const str = JSON.stringify(data);
+        for (const cid in this.peerClients) {
+          const peer = this.peerClients[cid];
+          if (peer && peer.dc && peer.dc.readyState === 'open') {
+            try { peer.dc.send(str); } catch (e) {}
+          }
+        }
+      }
+      this.send(data);
     }
   }
 
@@ -540,6 +726,14 @@ class NetworkManager {
     if (this.p2pPingInterval) {
       clearInterval(this.p2pPingInterval);
       this.p2pPingInterval = null;
+    }
+    if (this.peerClients) {
+      for (const cid in this.peerClients) {
+        const peer = this.peerClients[cid];
+        if (peer.dc) { try { peer.dc.close(); } catch(e) {} }
+        if (peer.pc) { try { peer.pc.close(); } catch(e) {} }
+      }
+      this.peerClients = {};
     }
     if (this.dc) {
       try { this.dc.close(); } catch (e) {}

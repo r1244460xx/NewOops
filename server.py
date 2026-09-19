@@ -121,52 +121,117 @@ class RoomManager:
         self.lock = threading.Lock()
         self.rooms = {}
 
-    def join_room(self, room_code, role, client):
+    def join_room(self, room_code, role, client, mode="versus"):
         with self.lock:
             if room_code not in self.rooms:
-                self.rooms[room_code] = {"host": None, "client": None}
+                self.rooms[room_code] = {"host": None, "clients": [], "client": None, "mode": mode}
             room = self.rooms[room_code]
+            if "clients" not in room:
+                room["clients"] = []
 
             if role == "host":
                 room["host"] = client
+                room["mode"] = mode
                 client.room_code = room_code
                 client.role = "host"
+                client.client_id = "host"
+                client.player_index = 0
                 client.send_json({
                     "type": "joined",
                     "role": "host",
                     "room": room_code,
-                    "opponent_present": room["client"] is not None
+                    "mode": room.get("mode", mode),
+                    "clients": [getattr(c, "client_id", "") for c in room["clients"] if c],
+                    "opponent_present": len(room["clients"]) > 0
                 })
-                if room["client"]:
-                    room["client"].send_json({"type": "host_ready", "role": "host"})
-                print(f"[WebSocket] Host joined room '{room_code}'")
+                for c in room["clients"]:
+                    if c:
+                        c.send_json({"type": "host_ready", "role": "host"})
+                print(f"[WebSocket] Host joined room '{room_code}' (mode: {mode})")
             else:
-                room["client"] = client
+                room_mode = room.get("mode", mode)
+                if room_mode == "versus4p":
+                    max_clients = 3
+                elif room_mode == "versus3p":
+                    max_clients = 2
+                else:
+                    max_clients = 1
+                occupied_slots = {getattr(c, "player_index", None) for c in room["clients"] if c}
+                assigned_slot = None
+                for s in range(1, max_clients + 1):
+                    if s not in occupied_slots:
+                        assigned_slot = s
+                        break
+
+                if assigned_slot is None:
+                    client.send_json({"type": "error", "message": "房間已滿，無法加入！"})
+                    print(f"[WebSocket] Room '{room_code}' is full. Rejected client.")
+                    return
+
+                client_id = f"client_{assigned_slot}_{id(client) % 10000}"
                 client.room_code = room_code
                 client.role = "client"
+                client.client_id = client_id
+                client.player_index = assigned_slot
+                room["clients"].append(client)
+                room["client"] = room["clients"][0] if room["clients"] else None
+
                 client.send_json({
                     "type": "joined",
                     "role": "client",
                     "room": room_code,
-                    "host_present": room["host"] is not None
+                    "clientId": client_id,
+                    "playerIndex": assigned_slot,
+                    "mode": room.get("mode", mode),
+                    "host_present": room.get("host") is not None
                 })
-                if room["host"]:
-                    room["host"].send_json({"type": "opponent_joined", "role": "client"})
-                print(f"[WebSocket] Client (P2) joined room '{room_code}'")
+                if room.get("host"):
+                    room["host"].send_json({
+                        "type": "opponent_joined",
+                        "role": "client",
+                        "clientId": client_id,
+                        "playerIndex": assigned_slot,
+                        "totalClients": len([c for c in room["clients"] if c])
+                    })
+                print(f"[WebSocket] Client (P{assigned_slot + 1}) joined room '{room_code}' id={client_id}")
 
     def handle_message(self, client, data_str):
-        # Ultra-fast zero-deserialization relay for state snapshots, input packets, and WebRTC signals
         is_ping = '"type":"ping"' in data_str or '"type": "ping"' in data_str
         is_join = '"join"' in data_str
+
+        # Targeted WebRTC signaling messages (with targetClientId)
         if getattr(client, "room_code", None) and not is_join and not is_ping:
+            if '"targetClientId"' in data_str:
+                try:
+                    msg = json.loads(data_str)
+                    target_id = msg.get("targetClientId")
+                    with self.lock:
+                        room = self.rooms.get(client.room_code)
+                        if room:
+                            if target_id == "host" and room.get("host"):
+                                msg["fromClientId"] = getattr(client, "client_id", "client")
+                                room["host"].send_json(msg)
+                                return
+                            else:
+                                for c in room.get("clients", []):
+                                    if c and getattr(c, "client_id", None) == target_id:
+                                        msg["fromClientId"] = getattr(client, "client_id", "host")
+                                        c.send_json(msg)
+                                        return
+                except Exception:
+                    pass
+
+            # Fast relay for gameplay states and inputs
             with self.lock:
                 room = self.rooms.get(client.room_code)
                 if room:
                     if client.role == "client" and room.get("host"):
                         room["host"].send_raw_text(data_str)
                         return
-                    elif client.role == "host" and room.get("client"):
-                        room["client"].send_raw_text(data_str)
+                    elif client.role == "host":
+                        for c in room.get("clients", []):
+                            if c:
+                                c.send_raw_text(data_str)
                         return
 
         try:
@@ -178,21 +243,23 @@ class RoomManager:
         if msg_type == "join":
             room_code = str(msg.get("room", "1234")).strip()
             role = msg.get("role", "host")
-            self.join_room(room_code, role, client)
+            mode = msg.get("mode", "versus")
+            self.join_room(room_code, role, client, mode)
         elif msg_type == "ping":
             pong_msg = {"type": "pong"}
             if "t" in msg:
                 pong_msg["t"] = msg["t"]
             client.send_json(pong_msg)
         else:
-            # Generic bidirectional relay between Host (P1) and Client (P2)
             with self.lock:
                 room = self.rooms.get(getattr(client, "room_code", None))
                 if room:
                     if client.role == "client" and room.get("host"):
                         room["host"].send_raw_text(data_str)
-                    elif client.role == "host" and room.get("client"):
-                        room["client"].send_raw_text(data_str)
+                    elif client.role == "host":
+                        for c in room.get("clients", []):
+                            if c:
+                                c.send_raw_text(data_str)
 
     def remove_client(self, client):
         with self.lock:
@@ -202,15 +269,29 @@ class RoomManager:
             room = self.rooms[room_code]
             if client.role == "host" and room.get("host") == client:
                 room["host"] = None
-                if room.get("client"):
-                    room["client"].send_json({"type": "opponent_left", "role": "host"})
+                for c in room.get("clients", []):
+                    if c:
+                        c.send_json({"type": "opponent_left", "role": "host"})
                 print(f"[WebSocket] Host left room '{room_code}'")
-            elif client.role == "client" and room.get("client") == client:
-                room["client"] = None
+            elif client.role == "client":
+                if client in room.get("clients", []):
+                    room["clients"].remove(client)
+                room["client"] = room["clients"][0] if room.get("clients") else None
+                left_msg = {
+                    "type": "opponent_left",
+                    "role": "client",
+                    "clientId": getattr(client, "client_id", "client"),
+                    "playerIndex": getattr(client, "player_index", 1),
+                    "totalClients": len(room["clients"])
+                }
                 if room.get("host"):
-                    room["host"].send_json({"type": "opponent_left", "role": "client"})
-                print(f"[WebSocket] Client left room '{room_code}'")
-            if not room["host"] and not room["client"]:
+                    room["host"].send_json(left_msg)
+                for other_c in room.get("clients", []):
+                    if other_c:
+                        other_c.send_json(left_msg)
+                print(f"[WebSocket] Client ({getattr(client, 'client_id', 'P2')}) left room '{room_code}'")
+
+            if not room.get("host") and not room.get("clients"):
                 del self.rooms[room_code]
 
 room_manager = RoomManager()
