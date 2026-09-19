@@ -7,8 +7,8 @@
   "cannonSpawnInterval": 1.35,
   "laserSpawnInterval": 1.45,
   "allstarSpawnInterval": 1.2,
-  "rockSpeed": 1.7,
-  "cannonSpeed": 6.3,
+  "rockSpeed": 4,
+  "cannonSpeed": 7.5,
   "laserDuration": 0.15,
   "maxLines": 5,
   "hopDuration": 0.09,
@@ -21,5 +21,5 @@
   "momentumWindow": 0.32,
   "versusTargetWins": 3,
   "versusHazardMode": "laser",
-  "_updatedAt": 1789814862823
+  "_updatedAt": 1789815288872
 }

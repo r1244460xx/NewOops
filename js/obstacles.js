@@ -295,20 +295,20 @@ class ObstacleManager {
       let startX = 0, startY = 0, vx = 0, vy = 0;
 
       if (w.side === 'left') {
-        startX = -1.2;
+        startX = -0.9;
         startY = w.index;
         vx = speed;
       } else if (w.side === 'right') {
-        startX = this.gridSize + 0.2;
+        startX = this.gridSize + 0.9;
         startY = w.index;
         vx = -speed;
       } else if (w.side === 'top') {
         startX = w.index;
-        startY = -1.2;
+        startY = -0.9;
         vy = speed;
       } else if (w.side === 'bottom') {
         startX = w.index;
-        startY = this.gridSize + 0.2;
+        startY = this.gridSize + 0.9;
         vy = -speed;
       }
 
@@ -332,20 +332,20 @@ class ObstacleManager {
       let startX = 0, startY = 0, vx = 0, vy = 0;
 
       if (w.side === 'left') {
-        startX = -0.8;
+        startX = -0.9;
         startY = w.index;
         vx = speed;
       } else if (w.side === 'right') {
-        startX = this.gridSize + 0.8;
+        startX = this.gridSize + 0.9;
         startY = w.index;
         vx = -speed;
       } else if (w.side === 'top') {
         startX = w.index;
-        startY = -0.8;
+        startY = -0.9;
         vy = speed;
       } else if (w.side === 'bottom') {
         startX = w.index;
-        startY = this.gridSize + 0.8;
+        startY = this.gridSize + 0.9;
         vy = -speed;
       }
 
@@ -420,9 +420,11 @@ class ObstacleManager {
       });
     }
 
-    if (obs.x < -1.2 || obs.x > this.gridSize + 0.2 || obs.y < -1.2 || obs.y > this.gridSize + 0.2) {
-      obs.isFinished = true;
-    }
+    // Despawn only after projectile has crossed the board and exited the opposite side
+    if (obs.vx > 0 && obs.x > this.gridSize + 0.9) obs.isFinished = true;
+    else if (obs.vx < 0 && obs.x < -0.9) obs.isFinished = true;
+    else if (obs.vy > 0 && obs.y > this.gridSize + 0.9) obs.isFinished = true;
+    else if (obs.vy < 0 && obs.y < -0.9) obs.isFinished = true;
   }
 
   updateCannonball(obs, dt) {
@@ -444,9 +446,11 @@ class ObstacleManager {
       });
     }
 
-    if (obs.x < -1.2 || obs.x > this.gridSize + 0.2 || obs.y < -1.2 || obs.y > this.gridSize + 0.2) {
-      obs.isFinished = true;
-    }
+    // Despawn only after projectile has crossed the board and exited the opposite side
+    if (obs.vx > 0 && obs.x > this.gridSize + 0.9) obs.isFinished = true;
+    else if (obs.vx < 0 && obs.x < -0.9) obs.isFinished = true;
+    else if (obs.vy > 0 && obs.y > this.gridSize + 0.9) obs.isFinished = true;
+    else if (obs.vy < 0 && obs.y < -0.9) obs.isFinished = true;
   }
 
   updateLaser(obs, dt) {
