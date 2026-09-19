@@ -7,6 +7,7 @@
 document.addEventListener('DOMContentLoaded', () => {
   const canvas = document.getElementById('game-canvas');
   const game = new Game(canvas);
+  window.game = game;
 
   const gameHud = document.getElementById('game-hud');
   const hudModeName = document.getElementById('hud-mode-name');
@@ -65,8 +66,9 @@ document.addEventListener('DOMContentLoaded', () => {
           if (hostShareUrl) {
             hostShareUrl.value = data.url ? `${data.url}/index.html` : `http://${data.ip}:${data.port}/index.html`;
           }
-          if (joinHostIp && !joinHostIp.value) {
-            joinHostIp.value = `${data.ip}:${data.port}`;
+          if (joinHostIp) {
+            const isLocal = !location.hostname || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+            joinHostIp.value = isLocal ? `${data.ip}:${data.port}` : '';
           }
         });
       }
@@ -114,7 +116,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (btnStartJoin) {
     btnStartJoin.addEventListener('click', () => {
-      const targetHost = (joinHostIp && joinHostIp.value) ? joinHostIp.value.trim() : '';
+      let targetHost = (joinHostIp && joinHostIp.value) ? joinHostIp.value.trim() : '';
+      // If user left it empty or typed current location.host, pass '' to naturally use current server
+      if (targetHost === location.host || targetHost === location.origin) {
+        targetHost = '';
+      }
       const room = (joinRoomCode && joinRoomCode.value) ? joinRoomCode.value.trim() : '1234';
       if (window.networkManager) {
         window.networkManager.connect(targetHost, 'client', room);
@@ -161,27 +167,17 @@ document.addEventListener('DOMContentLoaded', () => {
       if (hudScoreItem) hudScoreItem.classList.add('hidden');
       if (hudBestItem) hudBestItem.classList.add('hidden');
       if (hudWaveLabel) hudWaveLabel.textContent = 'STAGE';
-
-      if (netRole) {
-        if (hudNetItem) hudNetItem.classList.remove('hidden');
-        if (hudNetBadge) {
-          if (netRole === 'host') {
-            hudNetBadge.textContent = '🟢 P1 (房主)';
-            hudNetBadge.className = 'hud-net-badge connected';
-          } else {
-            hudNetBadge.textContent = '🟢 P2 (客機)';
-            hudNetBadge.className = 'hud-net-badge connected';
-          }
-        }
-      } else {
-        if (hudNetItem) hudNetItem.classList.add('hidden');
-      }
+      if (hudNetItem) hudNetItem.classList.remove('hidden');
     } else {
       if (hudVersusItem) hudVersusItem.classList.add('hidden');
-      if (hudNetItem) hudNetItem.classList.add('hidden');
+      if (hudNetItem) hudNetItem.classList.remove('hidden');
       if (hudScoreItem) hudScoreItem.classList.remove('hidden');
       if (hudBestItem) hudBestItem.classList.remove('hidden');
       if (hudWaveLabel) hudWaveLabel.textContent = 'LEVEL';
+    }
+
+    if (game && typeof game.updateNetHudBadge === 'function') {
+      game.updateNetHudBadge();
     }
 
     if (toggleDpad && toggleDpad.checked && mode !== 'versus') {
@@ -538,4 +534,38 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
   }, { passive: true });
+
+  // 11. Real-time Ping Monitor Hook
+  if (window.networkManager) {
+    const prevOnPing = window.networkManager.onPing;
+    window.networkManager.onPing = (ping, isP2P) => {
+      if (typeof prevOnPing === 'function') {
+        prevOnPing(ping, isP2P);
+      }
+      const isValidNum = typeof ping === 'number' && !isNaN(ping);
+      // Update Menu Ping Badge (only with server ping)
+      if (!isP2P) {
+        const menuPingVal = document.getElementById('menu-ping-val');
+        const menuPingBadge = document.getElementById('menu-ping-badge');
+        if (menuPingVal) {
+          menuPingVal.textContent = isValidNum ? ping : '--';
+        }
+        if (menuPingBadge) {
+          const colorClass = !isValidNum ? 'waiting' : (ping > 130 ? 'bad' : (ping > 60 ? 'warn' : 'connected'));
+          menuPingBadge.className = `menu-ping-badge ${colorClass}`;
+        }
+      }
+
+      // Update Game HUD Ping Badge
+      if (window.game && typeof window.game.updateNetHudBadge === 'function') {
+        if (window.game.mode === 'versus') {
+          if (isP2P) {
+            window.game.updateNetHudBadge(isValidNum ? ping : null);
+          }
+        } else {
+          window.game.updateNetHudBadge();
+        }
+      }
+    };
+  }
 });

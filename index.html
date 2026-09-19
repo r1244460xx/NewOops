@@ -74,6 +74,10 @@
           <div class="logo-badge">PONOS 2011 經典回顧</div>
           <h1 class="game-logo">Mr. <span class="highlight">Oops!!</span></h1>
           <p class="game-slogan">極限方格迴避 • 反應力大挑戰</p>
+          <div id="menu-ping-badge" class="menu-ping-badge">
+            <span class="ping-dot"></span>
+            <span>伺服器延遲: <strong id="menu-ping-val">--</strong> ms</span>
+          </div>
         </div>
 
         <div class="mode-select-grid">
@@ -171,14 +175,14 @@
             </div>
           </button>
 
-          <!-- Option B: LAN Host (Computer A) -->
+          <!-- Option B: Host Game -->
           <div class="versus-opt-card lan-card" id="card-lan-host">
-            <div class="opt-badge host-badge">區網連線 • 我是房主 (P1 藍)</div>
+            <div class="opt-badge host-badge">線上 / 區網 • 我是房主 (P1 藍)</div>
             <div class="opt-header">
               <span class="opt-icon">🏠</span>
               <div class="opt-info">
-                <div class="opt-title">建立區網房間 (Host Game)</div>
-                <div class="opt-desc">對手只需在同 Wi-Fi 電腦瀏覽器打開此網址即可加入！</div>
+                <div class="opt-title">建立對戰房間 (Host Game)</div>
+                <div class="opt-desc">將網址與房號提供給朋友即可開打！</div>
               </div>
             </div>
             <div class="lan-content">
@@ -199,20 +203,20 @@
             </div>
           </div>
 
-          <!-- Option C: LAN Join (Computer B) -->
+          <!-- Option C: Join Game -->
           <div class="versus-opt-card lan-card" id="card-lan-join">
-            <div class="opt-badge client-badge">區網連線 • 我是客機 (P2 紅)</div>
+            <div class="opt-badge client-badge">線上 / 區網 • 我是客機 (P2 紅)</div>
             <div class="opt-header">
               <span class="opt-icon">🎮</span>
               <div class="opt-info">
-                <div class="opt-title">加入區網房間 (Join Game)</div>
-                <div class="opt-desc">輸入房主主機位址，連線後可自由使用方向鍵操作！</div>
+                <div class="opt-title">加入對戰房間 (Join Game)</div>
+                <div class="opt-desc">若在同個網頁玩，只需輸入房號點連線！</div>
               </div>
             </div>
             <div class="lan-content">
               <div class="lan-field">
-                <label>房主 IP / 主機位址：</label>
-                <input type="text" id="join-host-ip" placeholder="例如: 192.168.1.100:8081">
+                <label>自訂伺服器位址 (本站遊玩請留空)：</label>
+                <input type="text" id="join-host-ip" placeholder="在同網站玩請留空，直接填房號">
               </div>
               <div class="lan-field-row">
                 <div class="lan-field" style="flex:1;">
@@ -290,12 +294,12 @@
   </div>
 
   <!-- Scripts in dependency order -->
-  <script src="js/config.js"></script>
-  <script src="js/audio.js"></script>
-  <script src="js/renderer.js"></script>
-  <script src="js/obstacles.js"></script>
-  <script src="js/network.js"></script>
-  <script src="js/game.js"></script>
-  <script src="js/main.js"></script>
+  <script src="js/config.js?v=2.4"></script>
+  <script src="js/audio.js?v=2.4"></script>
+  <script src="js/renderer.js?v=2.4"></script>
+  <script src="js/obstacles.js?v=2.4"></script>
+  <script src="js/network.js?v=2.4"></script>
+  <script src="js/game.js?v=2.4"></script>
+  <script src="js/main.js?v=2.4"></script>
 </body>
 </html>

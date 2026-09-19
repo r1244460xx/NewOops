@@ -180,55 +180,79 @@ class Game {
       if (this.netRole === 'host') {
         if (msg.opponent_present && (this.state === 'WAITING_FOR_PLAYERS' || this.waitingForOpponent)) {
           this.waitingForOpponent = false;
-          const badge = document.getElementById('hud-net-badge');
-          if (badge) {
-            badge.textContent = '🟢 P2 已連線';
-            badge.className = 'hud-net-badge connected';
-          }
-          this.startMatchCountdown(3);
+          this.updateNetHudBadge();
+          // WebRTC P2P handshake starts automatically; countdown triggers on onP2PConnected
+        } else {
+          this.updateNetHudBadge();
         }
       } else if (this.netRole === 'client') {
-        const badge = document.getElementById('hud-net-badge');
-        if (badge) {
-          badge.textContent = msg.host_present ? '🟢 P1 已連線' : '🟡 等待房主...';
-          badge.className = 'hud-net-badge ' + (msg.host_present ? 'connected' : 'waiting');
-        }
+        this.updateNetHudBadge();
       }
     };
 
     net.onOpponentJoined = () => {
-      const badge = document.getElementById('hud-net-badge');
-      if (badge) {
-        badge.textContent = '🟢 P2 已連線';
-        badge.className = 'hud-net-badge connected';
-      }
+      this.updateNetHudBadge();
       if (this.netRole === 'host') {
         if (this.state === 'WAITING_FOR_PLAYERS' || this.waitingForOpponent) {
           this.waitingForOpponent = false;
-          this.startMatchCountdown(3);
+          // WebRTC P2P handshake starts automatically; countdown triggers on onP2PConnected
         }
       }
     };
 
-    net.onHostReady = () => {
+    net.onP2PConnecting = () => {
+      console.log('[Game] P2P connecting...');
       const badge = document.getElementById('hud-net-badge');
       if (badge) {
-        badge.textContent = '🟢 P1 已連線';
-        badge.className = 'hud-net-badge connected';
+        badge.textContent = '🟡 P2P 配對中...';
+        badge.className = 'hud-net-badge waiting';
       }
     };
 
-    net.onOpponentLeft = () => {
+    net.onP2PConnected = () => {
+      console.log('[Game] ⚡ WebRTC P2P Connected successfully!');
+      this.waitingForOpponent = false;
+      this.updateNetHudBadge();
+
+      // Host initiates 3-second match countdown once direct P2P is established!
+      if (this.netRole === 'host' && (this.state === 'WAITING_FOR_PLAYERS' || this.waitingForOpponent || this.state === 'START_COUNTDOWN')) {
+        this.startMatchCountdown(3);
+      }
+    };
+
+    net.onP2PFailed = (reason) => {
+      console.warn('[Game] ❌ WebRTC P2P Failed:', reason);
       const badge = document.getElementById('hud-net-badge');
       if (badge) {
-        badge.textContent = '🟡 等待對手...';
-        badge.className = 'hud-net-badge waiting';
+        badge.textContent = '🔴 P2P 失敗';
+        badge.className = 'hud-net-badge bad';
       }
+      this.showWaveBanner('P2P FAILED', '3秒無法直連，已終止對戰', 4500);
+      this.state = 'WAITING_FOR_PLAYERS';
+      this.waitingForOpponent = true;
+    };
+
+    net.onHostReady = () => {
+      this.updateNetHudBadge();
+    };
+
+    net.onOpponentLeft = () => {
+      this.updateNetHudBadge();
       if (this.netRole === 'host') {
         this.showWaveBanner('OPPONENT LEFT', 'P2 DISCONNECTED', 0);
         this.pauseGame('p2_left');
       } else if (this.netRole === 'client') {
         this.showWaveBanner('HOST LEFT', 'ROOM CLOSED', 0);
+      }
+    };
+
+    const prevOnPing = net.onPing;
+    net.onPing = (pingMs, isP2P) => {
+      if (typeof prevOnPing === 'function') {
+        prevOnPing(pingMs, isP2P);
+      }
+      if (this.mode === 'versus' && isP2P) {
+        this.updateNetHudBadge(pingMs);
       }
     };
 
@@ -263,6 +287,72 @@ class Game {
         }
       }
     };
+  }
+
+  updateNetHudBadge(pingMs) {
+    const badge = document.getElementById('hud-net-badge');
+    if (!badge) return;
+
+    const net = window.networkManager;
+
+    if (this.mode === 'versus') {
+      const isP2P = Boolean(net && net.isP2PActive);
+      let ping = null;
+      if (isP2P) {
+        if (typeof pingMs === 'number' && !isNaN(pingMs)) {
+          ping = pingMs;
+        } else if (net && typeof net.p2pPing === 'number' && !isNaN(net.p2pPing)) {
+          ping = net.p2pPing;
+        }
+      }
+      const pingStr = ping !== null ? `${ping}ms` : '-- ms';
+
+      let colorClass = 'connected';
+      let dot = '🟢';
+      if (ping === null) {
+        colorClass = 'waiting';
+        dot = '🟡';
+      } else if (ping > 60) {
+        colorClass = 'bad';
+        dot = '🔴';
+      } else if (ping > 30) {
+        colorClass = 'warn';
+        dot = '🟡';
+      }
+
+      if (this.netRole === 'host') {
+        const isClientConnected = net && net.opponentConnected;
+        if (!isClientConnected) {
+          badge.textContent = '🟡 等待對手加入...';
+          badge.className = 'hud-net-badge waiting';
+        } else if (!isP2P) {
+          badge.textContent = '🟡 P2P 配對中...';
+          badge.className = 'hud-net-badge waiting';
+        } else {
+          badge.textContent = `${dot} P1 ↔ P2 · ${pingStr}`;
+          badge.className = `hud-net-badge ${colorClass}`;
+        }
+      } else if (this.netRole === 'client') {
+        const isHostConnected = net && net.opponentConnected;
+        if (!isHostConnected) {
+          badge.textContent = '🟡 等待房主...';
+          badge.className = 'hud-net-badge waiting';
+        } else if (!isP2P) {
+          badge.textContent = '🟡 P2P 配對中...';
+          badge.className = 'hud-net-badge waiting';
+        } else {
+          badge.textContent = `${dot} P2 ↔ P1 · ${pingStr}`;
+          badge.className = `hud-net-badge ${colorClass}`;
+        }
+      } else {
+        badge.textContent = `${dot} ${pingStr}`;
+        badge.className = `hud-net-badge ${colorClass}`;
+      }
+    } else {
+      // Single player is 100% client-side 0ms
+      badge.textContent = `⚡ 本機 (0ms)`;
+      badge.className = `hud-net-badge connected`;
+    }
   }
 
   playSound(name) {
@@ -1133,14 +1223,7 @@ class Game {
       this.score += waveBonus;
     }
 
-    this.sound.playWaveClear();
-    this.obstacleManager.setWave(this.wave);
-
-    const refPlayer = this.isVersus ? this.players[0] : this.player;
-    const pos = this.renderer.gridToScreen(refPlayer.col, refPlayer.row);
-    this.renderer.addFloatingText(`LEVEL CLEAR!`, pos.x, pos.y - 40, '#ffd60a');
-
-    this.showWaveBanner(`LEVEL ${this.wave}`, 'SPEED UP!');
+    this.obstacleManager.advanceWave(this.wave);
   }
 
   showWaveBanner(title, sub, duration = 1600) {

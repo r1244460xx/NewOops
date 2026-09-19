@@ -50,7 +50,19 @@ class ObstacleManager {
 
   getTargetWavesForLevel() {
     const cfg = window.configManager;
-    return cfg ? Math.max(1, Math.round(cfg.get('wavesPerLevel'))) : 5;
+    return cfg ? Math.max(1, Math.round(cfg.get('wavesPerLevel'))) : 1;
+  }
+
+  getLevelBreakTime() {
+    const cfg = window.configManager;
+    return cfg ? Math.max(0, Number(cfg.get('levelBreakTime'))) : 1.0;
+  }
+
+  advanceWave(wave) {
+    this.wave = wave;
+    this.spawnsThisLevel = 0;
+    this.isWaveComplete = false;
+    this.spawnCooldown = this.getLevelBreakTime();
   }
 
   setWave(wave) {
@@ -101,7 +113,7 @@ class ObstacleManager {
       }
     }
 
-    // 3. Handle Wave progression & spawner by wave count (not seconds)
+    // 3. Handle Wave progression & spawner with configurable levelBreakTime
     const targetWaves = this.getTargetWavesForLevel();
 
     if (this.spawnsThisLevel < targetWaves) {
@@ -114,7 +126,7 @@ class ObstacleManager {
       }
     } else {
       // All required attack waves for this level have been dispatched.
-      // Once all current warnings and projectiles finish, advance to next level!
+      // Wait until active warnings and projectiles on board finish and clear!
       if (this.warnings.length === 0 && this.obstacles.length === 0) {
         this.isWaveComplete = true;
       }

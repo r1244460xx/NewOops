@@ -18,7 +18,8 @@ const DEFAULT_GAME_CONFIG = {
   allstarSpawnInterval: 1.2,
   maxLines: 4,
   hopDuration: 0.11,
-  wavesPerLevel: 5,
+  wavesPerLevel: 1,
+  levelBreakTime: 1.0,
   starCooldown: 6,
   nearMissDistance: 0.95,
   versusCollisionMode: 'push',
@@ -185,8 +186,19 @@ const CONFIG_SCHEMA = [
     max: 20,
     step: 1,
     unit: '波',
-    placeholder: '5',
+    placeholder: '1',
     desc: '每一等級需要避開的攻擊波次總數（閃避完此波數後升至下一等級）'
+  },
+  {
+    key: 'levelBreakTime',
+    category: '角色與關卡 (Player & Mechanics)',
+    label: '升等休息喘息時間 (Level Break Time)',
+    min: 0.0,
+    max: 5.0,
+    step: 0.1,
+    unit: '秒',
+    placeholder: '1.0',
+    desc: '閃避完當前等級所有波數並清場後，進入下一等級前的喘息等待時間（設為 0 則無縫接續）'
   },
   {
     key: 'starCooldown',

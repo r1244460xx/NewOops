@@ -15,6 +15,14 @@ import struct
 import json
 import os
 import sys
+import io
+
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 
 PORT = 8081
 if len(sys.argv) > 1:
@@ -147,8 +155,10 @@ class RoomManager:
                 print(f"[WebSocket] Client (P2) joined room '{room_code}'")
 
     def handle_message(self, client, data_str):
-        # Ultra-fast zero-deserialization relay for state snapshots and input packets
-        if getattr(client, "room_code", None) and '"join"' not in data_str and '"ping"' not in data_str:
+        # Ultra-fast zero-deserialization relay for state snapshots, input packets, and WebRTC signals
+        is_ping = '"type":"ping"' in data_str or '"type": "ping"' in data_str
+        is_join = '"join"' in data_str
+        if getattr(client, "room_code", None) and not is_join and not is_ping:
             with self.lock:
                 room = self.rooms.get(client.room_code)
                 if room:
@@ -170,7 +180,10 @@ class RoomManager:
             role = msg.get("role", "host")
             self.join_room(room_code, role, client)
         elif msg_type == "ping":
-            client.send_json({"type": "pong"})
+            pong_msg = {"type": "pong"}
+            if "t" in msg:
+                pong_msg["t"] = msg["t"]
+            client.send_json(pong_msg)
         else:
             # Generic bidirectional relay between Host (P1) and Client (P2)
             with self.lock:
@@ -244,12 +257,24 @@ class GameServerHandler(http.server.SimpleHTTPRequestHandler):
                                 client.wfile.write(pong)
                                 client.wfile.flush()
                 except Exception as e:
-                    pass
+                    print(f"[WebSocket Loop Error]: {e}", flush=True)
                 finally:
                     room_manager.remove_client(client)
                 return
 
-        # 2. LAN IP Discovery Endpoint
+        # 2. Ping Health/Latency Endpoint
+        if self.path.startswith('/api/ping'):
+            resp = b'{"pong":true}'
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.send_header('Content-Length', str(len(resp)))
+            self.end_headers()
+            self.wfile.write(resp)
+            return
+
+        # 3. LAN IP Discovery Endpoint
         if self.path == '/api/lan-ip':
             ip_data = {
                 "ip": get_local_ip(),

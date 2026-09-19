@@ -2,7 +2,7 @@
   "warningMultiplier": 0.75,
   "rockWarningBase": 1.15,
   "cannonWarningBase": 0.95,
-  "laserWarningBase": 1,
+  "laserWarningBase": 1.25,
   "rockSpawnInterval": 1.6,
   "cannonSpawnInterval": 1.35,
   "laserSpawnInterval": 1.45,
@@ -10,14 +10,15 @@
   "rockSpeed": 1.7,
   "cannonSpeed": 6.3,
   "laserDuration": 0.28,
-  "maxLines": 4,
+  "maxLines": 5,
   "hopDuration": 0.11,
-  "wavesPerLevel": 5,
+  "wavesPerLevel": 1,
+  "levelBreakTime": 1,
   "starCooldown": 6,
   "nearMissDistance": 0.95,
   "versusCollisionMode": "push",
   "momentumWindow": 0.32,
   "versusTargetWins": 3,
   "versusHazardMode": "laser",
-  "_updatedAt": 1789553022319
+  "_updatedAt": 1789810698839
 }
