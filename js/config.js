@@ -8,7 +8,7 @@ const DEFAULT_GAME_CONFIG = {
   warningMultiplier: 0.75,
   rockWarningBase: 1.15,
   cannonWarningBase: 0.95,
-  laserWarningBase: 1.0,
+  laserWarningBase: 1.25,
   rockSpeed: 1.7,
   cannonSpeed: 6.3,
   laserDuration: 0.28,
@@ -16,15 +16,16 @@ const DEFAULT_GAME_CONFIG = {
   cannonSpawnInterval: 1.35,
   laserSpawnInterval: 1.45,
   allstarSpawnInterval: 1.2,
-  maxLines: 4,
+  maxLines: 5,
   hopDuration: 0.11,
   wavesPerLevel: 1,
-  levelBreakTime: 1.0,
+  interWaveBreakTime: 0.0,
+  levelBreakTime: 0.5,
   starCooldown: 6,
   nearMissDistance: 0.95,
   versusCollisionMode: 'push',
   versusTargetWins: 3,
-  versusHazardMode: 'allstar',
+  versusHazardMode: 'laser',
   momentumWindow: 0.32,
   momentumStepsRequired: 2
 };
@@ -72,7 +73,7 @@ const CONFIG_SCHEMA = [
     max: 2.5,
     step: 0.05,
     unit: '秒',
-    placeholder: '1.00',
+    placeholder: '1.25',
     desc: '雷射蓄力紅線閃爍的基準秒數'
   },
   {
@@ -162,8 +163,8 @@ const CONFIG_SCHEMA = [
     max: 5,
     step: 1,
     unit: '條',
-    placeholder: '4',
-    desc: '單波發射直線道具的最大上限（Level 4+ 鎖定上限）'
+    placeholder: '5',
+    desc: '單波發射直線道具的最大上限（Level 5+ 鎖定上限，最多同時 5 條）'
   },
 
   // 3. 角色與關卡機制
@@ -190,6 +191,17 @@ const CONFIG_SCHEMA = [
     desc: '每一等級需要避開的攻擊波次總數（閃避完此波數後升至下一等級）'
   },
   {
+    key: 'interWaveBreakTime',
+    category: '角色與關卡 (Player & Mechanics)',
+    label: '同關波段間隔喘息 (Inter-Wave Break Time)',
+    min: 0.0,
+    max: 3.0,
+    step: 0.1,
+    unit: '秒',
+    placeholder: '0.0',
+    desc: '關卡內包含多個波段時（Level 6+），前一波道具全數離開棋盤後、下一波預警出現前的安全間隔時間'
+  },
+  {
     key: 'levelBreakTime',
     category: '角色與關卡 (Player & Mechanics)',
     label: '升等休息喘息時間 (Level Break Time)',
@@ -197,7 +209,7 @@ const CONFIG_SCHEMA = [
     max: 5.0,
     step: 0.1,
     unit: '秒',
-    placeholder: '1.0',
+    placeholder: '0.5',
     desc: '閃避完當前等級所有波數並清場後，進入下一等級前的喘息等待時間（設為 0 則無縫接續）'
   },
   {
@@ -272,7 +284,7 @@ const CONFIG_SCHEMA = [
       { value: 'cannon', label: '中速砲彈 (Cannon - 緊湊高速閃避)' },
       { value: 'laser', label: '快速雷射 (Laser - 極限預判紅線)' }
     ],
-    placeholder: 'allstar',
+    placeholder: 'laser',
     desc: '雙人對決時預設出現的飛行道具種類'
   }
 ];

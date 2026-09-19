@@ -13,12 +13,12 @@
   "maxLines": 5,
   "hopDuration": 0.11,
   "wavesPerLevel": 1,
-  "levelBreakTime": 1,
+  "levelBreakTime": 0.5,
   "starCooldown": 6,
   "nearMissDistance": 0.95,
   "versusCollisionMode": "push",
   "momentumWindow": 0.32,
   "versusTargetWins": 3,
   "versusHazardMode": "laser",
-  "_updatedAt": 1789810698839
+  "_updatedAt": 1789811995877
 }

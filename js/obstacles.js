@@ -25,9 +25,12 @@ class ObstacleManager {
     
     this.currentMode = 'rock';
     this.wave = 1;
-    this.spawnsThisLevel = 0;
+    this.currentWavePlan = [1];
+    this.waveSubIndex = 0;
     this.spawnCooldown = 0;
     this.isWaveComplete = false;
+    this.hasActiveWarnings = false;
+    this.waitingForLevelClear = false;
   }
 
   playSound(name) {
@@ -38,30 +41,59 @@ class ObstacleManager {
     }
   }
 
+  getLevelWavePlan(level) {
+    if (level <= 5) {
+      return [Math.max(1, Math.min(5, level))];
+    }
+    // Level > 5:
+    // Waves before the last wave all shoot 5 projectiles.
+    // The last wave shoots (level % 5 === 0 ? 5 : level % 5) projectiles.
+    const fullWaves = Math.floor(level / 5);
+    const remainder = level % 5;
+    const plan = [];
+    if (remainder === 0) {
+      for (let i = 0; i < fullWaves; i++) {
+        plan.push(5);
+      }
+    } else {
+      for (let i = 0; i < fullWaves; i++) {
+        plan.push(5);
+      }
+      plan.push(remainder);
+    }
+    return plan;
+  }
+
+  getInterWaveBreakTime() {
+    const cfg = window.configManager;
+    return cfg ? Math.max(0, Number(cfg.get('interWaveBreakTime'))) : 0.0;
+  }
+
+  getLevelBreakTime() {
+    const cfg = window.configManager;
+    return cfg ? Math.max(0, Number(cfg.get('levelBreakTime'))) : 0.5;
+  }
+
   reset(mode = 'rock') {
     this.currentMode = mode;
     this.wave = 1;
     this.warnings = [];
     this.obstacles = [];
-    this.spawnsThisLevel = 0;
+    this.currentWavePlan = this.getLevelWavePlan(1);
+    this.waveSubIndex = 0;
     this.spawnCooldown = 0.8; // Brief initial grace period
     this.isWaveComplete = false;
-  }
-
-  getTargetWavesForLevel() {
-    const cfg = window.configManager;
-    return cfg ? Math.max(1, Math.round(cfg.get('wavesPerLevel'))) : 1;
-  }
-
-  getLevelBreakTime() {
-    const cfg = window.configManager;
-    return cfg ? Math.max(0, Number(cfg.get('levelBreakTime'))) : 1.0;
+    this.hasActiveWarnings = false;
+    this.waitingForLevelClear = false;
   }
 
   advanceWave(wave) {
     this.wave = wave;
-    this.spawnsThisLevel = 0;
+    this.currentWavePlan = this.getLevelWavePlan(this.wave);
+    this.waveSubIndex = 0;
     this.isWaveComplete = false;
+    this.hasActiveWarnings = false;
+    this.waitingForLevelClear = false;
     this.spawnCooldown = this.getLevelBreakTime();
   }
 
@@ -69,9 +101,12 @@ class ObstacleManager {
     this.wave = wave;
     this.warnings = [];
     this.obstacles = [];
-    this.spawnsThisLevel = 0;
+    this.currentWavePlan = this.getLevelWavePlan(this.wave);
+    this.waveSubIndex = 0;
     this.spawnCooldown = 0.8;
     this.isWaveComplete = false;
+    this.hasActiveWarnings = false;
+    this.waitingForLevelClear = false;
   }
 
   update(dt, player) {
@@ -113,21 +148,39 @@ class ObstacleManager {
       }
     }
 
-    // 3. Handle Wave progression & spawner with configurable levelBreakTime
-    const targetWaves = this.getTargetWavesForLevel();
-
-    if (this.spawnsThisLevel < targetWaves) {
-      this.spawnCooldown -= dt;
-
-      if (this.spawnCooldown <= 0) {
-        this.generatePattern(player);
-        this.spawnsThisLevel++;
-        this.spawnCooldown = this.getSpawnInterval();
+    // 3. Sub-wave continuous trigger:
+    // When the previous sub-wave's warnings end and projectiles/lasers erupt on the board:
+    // AT THAT EXACT MOMENT, the next sub-wave's warning arrows start flashing immediately!
+    if (this.hasActiveWarnings && this.warnings.length === 0) {
+      this.hasActiveWarnings = false;
+      if (this.waveSubIndex < this.currentWavePlan.length) {
+        // Next sub-wave warning arrows appear immediately!
+        const nextLines = this.currentWavePlan[this.waveSubIndex];
+        this.generatePattern(player, nextLines);
+        this.waveSubIndex++;
+        this.hasActiveWarnings = true;
+      } else {
+        // All sub-waves in this level have been dispatched! Wait for board clear.
+        this.waitingForLevelClear = true;
       }
-    } else {
-      // All required attack waves for this level have been dispatched.
-      // Wait until active warnings and projectiles on board finish and clear!
+    }
+
+    // 4. Initial launch of Level (after level break countdown):
+    if (!this.isWaveComplete && !this.waitingForLevelClear && !this.hasActiveWarnings && this.waveSubIndex === 0) {
+      this.spawnCooldown -= dt;
+      if (this.spawnCooldown <= 0) {
+        const firstLines = this.currentWavePlan[0];
+        this.generatePattern(player, firstLines);
+        this.waveSubIndex = 1;
+        this.hasActiveWarnings = true;
+      }
+    }
+
+    // 5. Level completion check:
+    // When all sub-waves have fired, once remaining projectiles clear the board, level is complete!
+    if (this.waitingForLevelClear) {
       if (this.warnings.length === 0 && this.obstacles.length === 0) {
+        this.waitingForLevelClear = false;
         this.isWaveComplete = true;
       }
     }
@@ -330,7 +383,7 @@ class ObstacleManager {
       });
     }
 
-    if (obs.x < -2 || obs.x > this.gridSize + 2 || obs.y < -2 || obs.y > this.gridSize + 2) {
+    if (obs.x < -1.2 || obs.x > this.gridSize + 0.2 || obs.y < -1.2 || obs.y > this.gridSize + 0.2) {
       obs.isFinished = true;
     }
   }
@@ -354,7 +407,7 @@ class ObstacleManager {
       });
     }
 
-    if (obs.x < -2 || obs.x > this.gridSize + 2 || obs.y < -2 || obs.y > this.gridSize + 2) {
+    if (obs.x < -1.2 || obs.x > this.gridSize + 0.2 || obs.y < -1.2 || obs.y > this.gridSize + 0.2) {
       obs.isFinished = true;
     }
   }
@@ -371,14 +424,16 @@ class ObstacleManager {
    * 1. Level 1: exactly 1 line
    * 2. Level 2: exactly 2 lines
    * 3. Level 3: exactly 3 lines
-   * 4. Level 4+: exactly 4 lines (capped at 4)
-   * 5. In single-player: One line MUST target player row or col.
-   * 6. In versus mode: Targets BOTH P1 and P2 (when numLines >= 2).
+   * 4. Level 4: exactly 4 lines
+   * 5. Level 5: exactly 5 lines
+   * 6. Level 6+: Each wave fires up to 5 lines. Prior sub-waves fire 5 lines,
+   *    and the last sub-wave fires (level % 5 === 0 ? 5 : level % 5) lines.
    */
-  generatePattern(playerOrPlayers) {
+  generatePattern(playerOrPlayers, requestedLines) {
     const cfg = window.configManager;
-    const maxLines = cfg ? cfg.get('maxLines') : 4;
-    const numLines = Math.min(maxLines, Math.max(1, this.wave));
+    const maxLines = cfg ? cfg.get('maxLines') : 5;
+    let numLines = typeof requestedLines === 'number' ? requestedLines : Math.min(maxLines, Math.max(1, this.wave));
+    numLines = Math.min(maxLines, Math.max(1, numLines));
 
     const selectedLines = [];
     const usedH = new Set();
