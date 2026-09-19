@@ -539,75 +539,210 @@ class GameRenderer {
 
   drawWarnings(warnings) {
     if (!warnings || warnings.length === 0) return;
-    const ctx = this.ctx;
     const ox = this.boardOriginX;
     const oy = this.boardOriginY;
     const bw = this.boardWidth;
     const bh = this.boardHeight;
     const ts = this.tileSize;
 
-    for (const w of warnings) {
-      const pulse = 0.85 + 0.3 * Math.sin(w.timer * 22);
-      const isLaser = w.type === 'laser';
-
-      ctx.save();
-
-      // Laser warning targeting line
-      if (isLaser) {
-        ctx.save();
-        const laserPulse = Math.sin(w.timer * 25);
-        ctx.fillStyle = '#ff2a6d';
-        ctx.globalAlpha = 0.18 + 0.16 * laserPulse;
-        if (w.direction === 'horizontal') {
-          const ly = oy + w.index * ts;
-          ctx.fillRect(ox, ly, bw, ts);
-        } else {
-          const lx = ox + w.index * ts;
-          ctx.fillRect(lx, oy, ts, bh);
-        }
-        ctx.strokeStyle = '#ff4b78';
-        ctx.globalAlpha = 0.5 + 0.4 * laserPulse;
-        ctx.lineWidth = 2;
-        if (w.direction === 'horizontal') {
-          const ly = oy + w.index * ts;
-          ctx.strokeRect(ox, ly + 2, bw, ts - 4);
-        } else {
-          const lx = ox + w.index * ts;
-          ctx.strokeRect(lx + 2, oy, ts - 4, bh);
-        }
-        ctx.restore();
+    // Pass 1: Draw laser targeting lanes underneath perimeter badges
+    for (let i = 0; i < warnings.length; i++) {
+      const w = warnings[i];
+      if (w.type === 'laser') {
+        this.drawLaserWarningLane(w, ox, oy, bw, bh, ts);
       }
+    }
 
-      // Warning badge position
-      let badgeX = 0;
-      let badgeY = 0;
-      let arrowChar = '▼';
+    // Pass 2: Draw perimeter warning badges
+    for (let i = 0; i < warnings.length; i++) {
+      this.drawWarningBadge(warnings[i], ox, oy, bw, bh, ts);
+    }
+  }
 
-      if (w.side === 'top') {
-        badgeX = ox + (w.index + 0.5) * ts;
-        badgeY = oy - 18;
-        arrowChar = '▼';
-      } else if (w.side === 'bottom') {
-        badgeX = ox + (w.index + 0.5) * ts;
-        badgeY = oy + bh + 18;
-        arrowChar = '▲';
-      } else if (w.side === 'left') {
-        badgeX = ox - 18;
-        badgeY = oy + (w.index + 0.5) * ts;
-        arrowChar = '►';
-      } else if (w.side === 'right') {
-        badgeX = ox + bw + 18;
-        badgeY = oy + (w.index + 0.5) * ts;
-        arrowChar = '◄';
+  drawLaserWarningLane(w, ox, oy, bw, bh, ts) {
+    const ctx = this.ctx;
+    ctx.save();
+
+    const maxTimer = w.maxTimer || 0.8;
+    const progress = Math.min(1, Math.max(0, 1 - (w.timer / maxTimer))); // 0 (start) -> 1 (fire)
+    const urgencyFreq = 16 + progress * 26;
+    const pulse = 0.5 + 0.5 * Math.sin(w.timer * urgencyFreq);
+    const isCritical = w.timer <= 0.22; // Imminent firing phase
+
+    let lx = ox, ly = oy, lw = bw, lh = bh;
+    if (w.direction === 'horizontal') {
+      ly = oy + w.index * ts;
+      lh = ts;
+    } else {
+      lx = ox + w.index * ts;
+      lw = ts;
+    }
+
+    // Dynamic transparency modulation across all warning elements (preserved)
+    const bgAlpha = isCritical ? (0.14 + 0.14 * pulse) : (0.06 + 0.10 * pulse);
+    const edgeAlpha = isCritical ? (0.55 + 0.40 * pulse) : (0.25 + 0.45 * pulse);
+    const centerAlpha = isCritical ? (0.65 + 0.33 * pulse) : (0.35 + 0.45 * pulse);
+    const chevronAlpha = isCritical ? (0.65 + 0.33 * pulse) : (0.30 + 0.50 * pulse);
+    const bracketAlpha = isCritical ? (0.50 + 0.40 * pulse) : (0.20 + 0.45 * pulse);
+
+    // 1. Warning Trajectory Corridor Fill (Laser pink approaching laser red, breathing with pulse)
+    ctx.fillStyle = isCritical ? `rgba(255, 10, 65, ${bgAlpha})` : `rgba(255, 30, 85, ${bgAlpha})`;
+    ctx.fillRect(lx, ly, lw, lh);
+
+    // 2. Trajectory Boundary Dashed Edges (Laser pink dashed borders blinking with pulse)
+    ctx.strokeStyle = isCritical ? `rgba(255, 15, 70, ${edgeAlpha})` : `rgba(255, 45, 95, ${edgeAlpha})`;
+    ctx.lineWidth = isCritical ? 2.5 : 1.8;
+    ctx.setLineDash([8, 6]);
+    ctx.strokeRect(lx + 1, ly + 1, lw - 2, lh - 2);
+
+    // 3. Dynamic Centerline Aiming Reticle (Laser pink dashed guide modulating in alpha)
+    ctx.setLineDash([14, 10]);
+    ctx.lineWidth = isCritical ? 3.2 : 2.0;
+    ctx.strokeStyle = isCritical ? `rgba(255, 200, 215, ${centerAlpha})` : `rgba(255, 55, 105, ${centerAlpha})`;
+    ctx.beginPath();
+    if (w.direction === 'horizontal') {
+      const centerY = ly + ts * 0.5;
+      ctx.moveTo(lx, centerY);
+      ctx.lineTo(lx + lw, centerY);
+    } else {
+      const centerX = lx + ts * 0.5;
+      ctx.moveTo(centerX, ly);
+      ctx.lineTo(centerX, ly + lh);
+    }
+    ctx.stroke();
+
+    // 4. Animated Flowing Directional Chevrons (Streaming in laser firing direction, breathing in alpha)
+    ctx.setLineDash([]);
+    const chevronSpacing = ts * 0.75;
+    const speed = isCritical ? 220 : 150;
+    const flowTime = this.bgTime * speed;
+
+    ctx.strokeStyle = isCritical ? `rgba(255, 220, 230, ${chevronAlpha})` : `rgba(255, 50, 105, ${chevronAlpha})`;
+    ctx.lineWidth = isCritical ? 3.0 : 2.4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    if (w.direction === 'horizontal') {
+      const centerY = ly + ts * 0.5;
+      const dir = (w.side === 'left') ? 1 : -1;
+      const offset = ((dir * flowTime) % chevronSpacing + chevronSpacing) % chevronSpacing;
+      const startX = lx;
+      const endX = lx + lw;
+
+      for (let x = startX + offset; x < endX; x += chevronSpacing) {
+        ctx.beginPath();
+        if (dir > 0) {
+          ctx.moveTo(x - 7, centerY - 8);
+          ctx.lineTo(x + 5, centerY);
+          ctx.lineTo(x - 7, centerY + 8);
+        } else {
+          ctx.moveTo(x + 7, centerY - 8);
+          ctx.lineTo(x - 5, centerY);
+          ctx.lineTo(x + 7, centerY + 8);
+        }
+        ctx.stroke();
       }
+    } else {
+      const centerX = lx + ts * 0.5;
+      const dir = (w.side === 'top') ? 1 : -1;
+      const offset = ((dir * flowTime) % chevronSpacing + chevronSpacing) % chevronSpacing;
+      const startY = ly;
+      const endY = ly + lh;
 
-      ctx.translate(badgeX, badgeY);
+      for (let y = startY + offset; y < endY; y += chevronSpacing) {
+        ctx.beginPath();
+        if (dir > 0) {
+          ctx.moveTo(centerX - 8, y - 7);
+          ctx.lineTo(centerX, y + 5);
+          ctx.lineTo(centerX + 8, y - 7);
+        } else {
+          ctx.moveTo(centerX - 8, y + 7);
+          ctx.lineTo(centerX, y - 5);
+          ctx.lineTo(centerX + 8, y + 7);
+        }
+        ctx.stroke();
+      }
+    }
+
+    // 5. Tactical Cell Corner Brackets at Grid Intersections (Breathing in alpha)
+    ctx.strokeStyle = isCritical ? `rgba(255, 20, 75, ${bracketAlpha})` : `rgba(255, 40, 95, ${bracketAlpha})`;
+    ctx.lineWidth = 1.8;
+    const blen = 6;
+    for (let i = 0; i < this.gridSize; i++) {
+      const tx = (w.direction === 'horizontal') ? ox + i * ts : lx;
+      const ty = (w.direction === 'horizontal') ? ly : oy + i * ts;
+      ctx.beginPath();
+      // Top-left
+      ctx.moveTo(tx + blen, ty + 2);
+      ctx.lineTo(tx + 2, ty + 2);
+      ctx.lineTo(tx + 2, ty + blen);
+      // Top-right
+      ctx.moveTo(tx + ts - blen, ty + 2);
+      ctx.lineTo(tx + ts - 2, ty + 2);
+      ctx.lineTo(tx + ts - 2, ty + blen);
+      // Bottom-left
+      ctx.moveTo(tx + 2, ty + ts - blen);
+      ctx.lineTo(tx + 2, ty + ts - 2);
+      ctx.lineTo(tx + blen, ty + ts - 2);
+      // Bottom-right
+      ctx.moveTo(tx + ts - 2, ty + ts - blen);
+      ctx.lineTo(tx + ts - 2, ty + ts - 2);
+      ctx.lineTo(tx + ts - blen, ty + ts - 2);
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
+  drawWarningBadge(w, ox, oy, bw, bh, ts) {
+    const ctx = this.ctx;
+    const isLaser = w.type === 'laser';
+    const pulse = 0.85 + 0.3 * Math.sin(w.timer * (isLaser ? 26 : 22));
+
+    let badgeX = 0;
+    let badgeY = 0;
+    let arrowChar = '▼';
+
+    if (w.side === 'top') {
+      badgeX = ox + (w.index + 0.5) * ts;
+      badgeY = oy - 18;
+      arrowChar = '▼';
+    } else if (w.side === 'bottom') {
+      badgeX = ox + (w.index + 0.5) * ts;
+      badgeY = oy + bh + 18;
+      arrowChar = '▲';
+    } else if (w.side === 'left') {
+      badgeX = ox - 18;
+      badgeY = oy + (w.index + 0.5) * ts;
+      arrowChar = '►';
+    } else if (w.side === 'right') {
+      badgeX = ox + bw + 18;
+      badgeY = oy + (w.index + 0.5) * ts;
+      arrowChar = '◄';
+    }
+
+    ctx.save();
+    ctx.translate(badgeX, badgeY);
+
+    if (isLaser) {
+      // Laser expanding sonar ripple ring
+      const ripplePhase = (this.bgTime * 2.5) % 1;
+      const rippleRadius = 15 + ripplePhase * 14;
+      const rippleAlpha = (1 - ripplePhase) * 0.7;
+      ctx.strokeStyle = `rgba(255, 30, 85, ${rippleAlpha})`;
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.arc(0, 0, rippleRadius, 0, Math.PI * 2);
+      ctx.stroke();
+
       ctx.scale(pulse, pulse);
 
-      ctx.fillStyle = isLaser ? '#ff2a6d' : '#ff3b30';
+      // Laser Pink Warning Badge (approaching laser red)
+      ctx.fillStyle = '#ff1e56';
       ctx.beginPath();
       ctx.arc(0, 0, 15, 0, Math.PI * 2);
       ctx.fill();
+
       ctx.lineWidth = 2.5;
       ctx.strokeStyle = '#ffd60a';
       ctx.stroke();
@@ -618,8 +753,27 @@ class GameRenderer {
       ctx.textBaseline = 'middle';
       ctx.fillText(arrowChar, 0, 1);
 
-      ctx.restore();
+    } else {
+      // Standard Cannon / Rock Red Badge
+      ctx.scale(pulse, pulse);
+
+      ctx.fillStyle = '#ff3b30';
+      ctx.beginPath();
+      ctx.arc(0, 0, 15, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = '#ffd60a';
+      ctx.stroke();
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '900 14px "Fredoka", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(arrowChar, 0, 1);
     }
+
+    ctx.restore();
   }
 
   drawCollectible(item) {
@@ -786,23 +940,140 @@ class GameRenderer {
       lw = ts;
     }
 
-    ctx.fillStyle = '#ff2a6d';
-    ctx.globalAlpha = 0.55;
-    ctx.fillRect(lx, ly, lw, lh);
+    const maxDur = obs.maxDuration || 0.28;
+    const lifeRatio = Math.max(0, Math.min(1, obs.duration / maxDur)); // 1 at start, 0 at end
+    // Rapid plasma vibration
+    const flicker = 0.88 + 0.12 * Math.sin(this.bgTime * 95);
+    const plasmaAlpha = Math.min(1, lifeRatio * 1.4) * flicker;
 
-    ctx.globalAlpha = 1.0;
-    ctx.fillStyle = '#ff3b30';
+    // 1. Broad outer ionizing plasma aura (Gradient perpendicular to beam)
+    ctx.save();
+    ctx.globalAlpha = plasmaAlpha;
     if (obs.direction === 'horizontal') {
-      ctx.fillRect(lx, ly + ts * 0.2, lw, ts * 0.6);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(lx, ly + ts * 0.35, lw, ts * 0.3);
+      const grad = ctx.createLinearGradient(lx, ly, lx, ly + lh);
+      grad.addColorStop(0, 'rgba(255, 0, 60, 0)');
+      grad.addColorStop(0.18, 'rgba(255, 0, 75, 0.45)');
+      grad.addColorStop(0.5, 'rgba(255, 20, 100, 0.78)');
+      grad.addColorStop(0.82, 'rgba(255, 0, 75, 0.45)');
+      grad.addColorStop(1, 'rgba(255, 0, 60, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(lx, ly, lw, lh);
     } else {
-      ctx.fillRect(lx + ts * 0.2, ly, ts * 0.6, lh);
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(lx + ts * 0.35, ly, ts * 0.3, lh);
+      const grad = ctx.createLinearGradient(lx, ly, lx + lw, ly);
+      grad.addColorStop(0, 'rgba(255, 0, 60, 0)');
+      grad.addColorStop(0.18, 'rgba(255, 0, 75, 0.45)');
+      grad.addColorStop(0.5, 'rgba(255, 20, 100, 0.78)');
+      grad.addColorStop(0.82, 'rgba(255, 0, 75, 0.45)');
+      grad.addColorStop(1, 'rgba(255, 0, 60, 0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(lx, ly, lw, lh);
     }
+    ctx.restore();
+
+    // 2. High-energy Neon Crimson Core Channel (~60% tile width)
+    ctx.save();
+    ctx.globalAlpha = plasmaAlpha;
+    ctx.fillStyle = '#ff003c';
+    ctx.shadowColor = '#ff0055';
+    ctx.shadowBlur = 18;
+    if (obs.direction === 'horizontal') {
+      const coreH = ts * 0.58;
+      const coreY = ly + (ts - coreH) * 0.5;
+      ctx.fillRect(lx, coreY, lw, coreH);
+    } else {
+      const coreW = ts * 0.58;
+      const coreX = lx + (ts - coreW) * 0.5;
+      ctx.fillRect(coreX, ly, coreW, lh);
+    }
+    ctx.restore();
+
+    // 3. Blinding Super-Hot White Core (~26% tile width)
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, plasmaAlpha * 1.25);
+    ctx.fillStyle = '#ffffff';
+    ctx.shadowColor = '#ffffff';
+    ctx.shadowBlur = 12;
+    if (obs.direction === 'horizontal') {
+      const whiteH = ts * 0.26;
+      const whiteY = ly + (ts - whiteH) * 0.5;
+      ctx.fillRect(lx, whiteY, lw, whiteH);
+    } else {
+      const whiteW = ts * 0.26;
+      const whiteX = lx + (ts - whiteW) * 0.5;
+      ctx.fillRect(whiteX, ly, whiteW, lh);
+    }
+    ctx.restore();
+
+    // 4. Electric Arc / Crackling Lightning along beam edges
+    ctx.save();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.8;
+    ctx.globalAlpha = Math.min(1, plasmaAlpha * 0.95);
+    ctx.beginPath();
+    const arcStep = 18;
+    const tSeed = this.bgTime * 70;
+    if (obs.direction === 'horizontal') {
+      const cy = ly + ts * 0.5;
+      const spread = ts * 0.25;
+      // Upper lightning arc
+      for (let x = lx; x <= lx + lw; x += arcStep) {
+        const jitter = (Math.sin(x * 0.28 + tSeed) * Math.cos(x * 0.16 - tSeed)) * spread;
+        if (x === lx) ctx.moveTo(x, cy - spread * 0.6 + jitter * 0.4);
+        else ctx.lineTo(x, cy - spread * 0.6 + jitter * 0.4);
+      }
+      // Lower lightning arc
+      for (let x = lx; x <= lx + lw; x += arcStep) {
+        const jitter = (Math.cos(x * 0.25 - tSeed) * Math.sin(x * 0.14 + tSeed)) * spread;
+        if (x === lx) ctx.moveTo(x, cy + spread * 0.6 + jitter * 0.4);
+        else ctx.lineTo(x, cy + spread * 0.6 + jitter * 0.4);
+      }
+    } else {
+      const cx = lx + ts * 0.5;
+      const spread = ts * 0.25;
+      // Left lightning arc
+      for (let y = ly; y <= ly + lh; y += arcStep) {
+        const jitter = (Math.sin(y * 0.28 + tSeed) * Math.cos(y * 0.16 - tSeed)) * spread;
+        if (y === ly) ctx.moveTo(cx - spread * 0.6 + jitter * 0.4, y);
+        else ctx.lineTo(cx - spread * 0.6 + jitter * 0.4, y);
+      }
+      // Right lightning arc
+      for (let y = ly; y <= ly + lh; y += arcStep) {
+        const jitter = (Math.cos(y * 0.25 - tSeed) * Math.sin(y * 0.14 + tSeed)) * spread;
+        if (y === ly) ctx.moveTo(cx + spread * 0.6 + jitter * 0.4, y);
+        else ctx.lineTo(cx + spread * 0.6 + jitter * 0.4, y);
+      }
+    }
+    ctx.stroke();
+    ctx.restore();
+
+    // 5. Border Impact Flares (Blazing energy at entrance and exit boundaries)
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, plasmaAlpha * 1.1);
+    const flareR = ts * 0.44;
+    if (obs.direction === 'horizontal') {
+      const cy = ly + ts * 0.5;
+      this.drawLaserFlare(ctx, lx, cy, flareR);
+      this.drawLaserFlare(ctx, lx + lw, cy, flareR);
+    } else {
+      const cx = lx + ts * 0.5;
+      this.drawLaserFlare(ctx, cx, ly, flareR);
+      this.drawLaserFlare(ctx, cx, ly + lh, flareR);
+    }
+    ctx.restore();
 
     ctx.restore();
+  }
+
+  drawLaserFlare(ctx, x, y, radius) {
+    const flareGrad = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    flareGrad.addColorStop(0, '#ffffff');
+    flareGrad.addColorStop(0.35, '#ff0055');
+    flareGrad.addColorStop(0.7, 'rgba(255, 0, 80, 0.4)');
+    flareGrad.addColorStop(1, 'rgba(255, 0, 60, 0)');
+    ctx.fillStyle = flareGrad;
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   drawPlayer(player, obstacles) {

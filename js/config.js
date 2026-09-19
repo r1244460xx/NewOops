@@ -199,7 +199,7 @@ const CONFIG_SCHEMA = [
     step: 0.1,
     unit: '秒',
     placeholder: '0.0',
-    desc: '關卡內包含多個波段時（Level 6+），前一波道具全數離開棋盤後、下一波預警出現前的安全間隔時間'
+    desc: '同一 Level 內包含多個波次時（例如 Level 6 或 wavesPerLevel>1），第一波發射當下到第二波預警出現之間的間隔時間。設為 0.0 代表第一波發射當下立即出現第二波預警（零喘息連鎖）。'
   },
   {
     key: 'levelBreakTime',

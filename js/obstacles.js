@@ -42,26 +42,40 @@ class ObstacleManager {
   }
 
   getLevelWavePlan(level) {
+    const cfg = window.configManager;
+    const wavesConfig = cfg ? Math.max(1, Math.round(cfg.get('wavesPerLevel'))) : 1;
+
+    let basePlan = [];
     if (level <= 5) {
-      return [Math.max(1, Math.min(5, level))];
-    }
-    // Level > 5:
-    // Waves before the last wave all shoot 5 projectiles.
-    // The last wave shoots (level % 5 === 0 ? 5 : level % 5) projectiles.
-    const fullWaves = Math.floor(level / 5);
-    const remainder = level % 5;
-    const plan = [];
-    if (remainder === 0) {
-      for (let i = 0; i < fullWaves; i++) {
-        plan.push(5);
-      }
+      basePlan = [Math.max(1, Math.min(5, level))];
     } else {
-      for (let i = 0; i < fullWaves; i++) {
-        plan.push(5);
+      // Level > 5:
+      // Waves before the last wave all shoot 5 projectiles.
+      // The last wave shoots (level % 5 === 0 ? 5 : level % 5) projectiles.
+      const fullWaves = Math.floor(level / 5);
+      const remainder = level % 5;
+      if (remainder === 0) {
+        for (let i = 0; i < fullWaves; i++) {
+          basePlan.push(5);
+        }
+      } else {
+        for (let i = 0; i < fullWaves; i++) {
+          basePlan.push(5);
+        }
+        basePlan.push(remainder);
       }
-      plan.push(remainder);
     }
-    return plan;
+
+    // If user configures wavesPerLevel > 1, repeat waves within each level (for easy testing on early levels)
+    if (wavesConfig > 1 && level <= 5) {
+      const plan = [];
+      for (let i = 0; i < wavesConfig; i++) {
+        plan.push(...basePlan);
+      }
+      return plan;
+    }
+
+    return basePlan;
   }
 
   getInterWaveBreakTime() {
@@ -82,8 +96,10 @@ class ObstacleManager {
     this.currentWavePlan = this.getLevelWavePlan(1);
     this.waveSubIndex = 0;
     this.spawnCooldown = 0.8; // Brief initial grace period
+    this.interWaveCooldown = 0;
     this.isWaveComplete = false;
     this.hasActiveWarnings = false;
+    this.waitingForSubWave = false;
     this.waitingForLevelClear = false;
   }
 
@@ -93,7 +109,9 @@ class ObstacleManager {
     this.waveSubIndex = 0;
     this.isWaveComplete = false;
     this.hasActiveWarnings = false;
+    this.waitingForSubWave = false;
     this.waitingForLevelClear = false;
+    this.interWaveCooldown = 0;
     this.spawnCooldown = this.getLevelBreakTime();
   }
 
@@ -104,8 +122,10 @@ class ObstacleManager {
     this.currentWavePlan = this.getLevelWavePlan(this.wave);
     this.waveSubIndex = 0;
     this.spawnCooldown = 0.8;
+    this.interWaveCooldown = 0;
     this.isWaveComplete = false;
     this.hasActiveWarnings = false;
+    this.waitingForSubWave = false;
     this.waitingForLevelClear = false;
   }
 
@@ -149,19 +169,36 @@ class ObstacleManager {
     }
 
     // 3. Sub-wave continuous trigger:
-    // When the previous sub-wave's warnings end and projectiles/lasers erupt on the board:
-    // AT THAT EXACT MOMENT, the next sub-wave's warning arrows start flashing immediately!
+    // When previous sub-wave warnings end and lasers/projectiles fire onto the board:
     if (this.hasActiveWarnings && this.warnings.length === 0) {
       this.hasActiveWarnings = false;
       if (this.waveSubIndex < this.currentWavePlan.length) {
-        // Next sub-wave warning arrows appear immediately!
+        const breakTime = this.getInterWaveBreakTime();
+        if (breakTime > 0) {
+          this.interWaveCooldown = breakTime;
+          this.waitingForSubWave = true;
+        } else {
+          // 0 delay (default): AT THE EXACT MOMENT of firing, next sub-wave warning starts immediately!
+          const nextLines = this.currentWavePlan[this.waveSubIndex];
+          this.generatePattern(player, nextLines);
+          this.waveSubIndex++;
+          this.hasActiveWarnings = true;
+        }
+      } else {
+        // All sub-waves in this level have been dispatched! Wait for board clear.
+        this.waitingForLevelClear = true;
+      }
+    }
+
+    // Inter-wave cooldown between sub-waves if breakTime > 0
+    if (this.waitingForSubWave) {
+      this.interWaveCooldown -= dt;
+      if (this.interWaveCooldown <= 0) {
+        this.waitingForSubWave = false;
         const nextLines = this.currentWavePlan[this.waveSubIndex];
         this.generatePattern(player, nextLines);
         this.waveSubIndex++;
         this.hasActiveWarnings = true;
-      } else {
-        // All sub-waves in this level have been dispatched! Wait for board clear.
-        this.waitingForLevelClear = true;
       }
     }
 
@@ -414,6 +451,32 @@ class ObstacleManager {
 
   updateLaser(obs, dt) {
     obs.duration -= dt;
+
+    // Spawn crackling plasma sparks while laser is actively firing
+    if (this.renderer && Math.random() < 0.45) {
+      const ts = this.renderer.tileSize;
+      const ox = this.renderer.boardOriginX;
+      const oy = this.renderer.boardOriginY;
+      const randTile = Math.random() * 6;
+      let px = 0, py = 0;
+      if (obs.direction === 'horizontal') {
+        px = ox + randTile * ts;
+        py = oy + (obs.index + 0.5) * ts + (Math.random() - 0.5) * ts * 0.35;
+      } else {
+        px = ox + (obs.index + 0.5) * ts + (Math.random() - 0.5) * ts * 0.35;
+        py = oy + randTile * ts;
+      }
+      this.renderer.spawnParticle({
+        x: px,
+        y: py,
+        vx: (Math.random() - 0.5) * 110,
+        vy: (Math.random() - 0.5) * 110,
+        radius: 2 + Math.random() * 2.5,
+        color: Math.random() > 0.4 ? '#ffffff' : '#ff0055',
+        life: 0.16
+      });
+    }
+
     if (obs.duration <= 0) {
       obs.isFinished = true;
     }
