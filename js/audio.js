@@ -14,6 +14,8 @@ class SoundEngine {
     this.masterGain = null;
     this.sfxGain = null;
     this.bgmGain = null;
+    this.compressor = null;
+    this.lastPlayTimes = {};
     this.tempo = 138;
   }
 
@@ -24,9 +26,18 @@ class SoundEngine {
       if (!AudioCtx) return;
       this.ctx = new AudioCtx();
 
+      // Master Compressor to eliminate volume fluctuations and clipping spikes
+      this.compressor = this.ctx.createDynamicsCompressor();
+      this.compressor.threshold.setValueAtTime(-16, this.ctx.currentTime);
+      this.compressor.knee.setValueAtTime(12, this.ctx.currentTime);
+      this.compressor.ratio.setValueAtTime(8, this.ctx.currentTime);
+      this.compressor.attack.setValueAtTime(0.003, this.ctx.currentTime);
+      this.compressor.release.setValueAtTime(0.12, this.ctx.currentTime);
+      this.compressor.connect(this.ctx.destination);
+
       this.masterGain = this.ctx.createGain();
       this.masterGain.gain.setValueAtTime(0.35, this.ctx.currentTime);
-      this.masterGain.connect(this.ctx.destination);
+      this.masterGain.connect(this.compressor);
 
       this.sfxGain = this.ctx.createGain();
       this.sfxGain.gain.setValueAtTime(0.85, this.ctx.currentTime);
@@ -38,6 +49,16 @@ class SoundEngine {
     } catch (e) {
       console.warn("Web Audio API not supported", e);
     }
+  }
+
+  _canPlay(name, cooldown = 0.05) {
+    if (this.isMuted || !this.ctx || this.ctx.state !== 'running') return false;
+    const now = this.ctx.currentTime;
+    if (this.lastPlayTimes[name] && (now - this.lastPlayTimes[name]) < cooldown) {
+      return false; // Suppress duplicate simultaneous sound triggers in the same frame
+    }
+    this.lastPlayTimes[name] = now;
+    return true;
   }
 
   resume() {
@@ -85,7 +106,7 @@ class SoundEngine {
 
   // Character movement hop
   playHop() {
-    if (this.isMuted || !this.ctx || this.ctx.state !== 'running') return;
+    if (!this._canPlay('playHop', 0.04)) return;
     try {
       const now = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
@@ -108,7 +129,7 @@ class SoundEngine {
 
   // Warning alarm tick
   playWarning() {
-    if (this.isMuted || !this.ctx || this.ctx.state !== 'running') return;
+    if (!this._canPlay('playWarning', 0.06)) return;
     try {
       const now = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
@@ -131,7 +152,7 @@ class SoundEngine {
 
   // Rock roll rumble
   playRockRoll() {
-    if (this.isMuted || !this.ctx || this.ctx.state !== 'running') return;
+    if (!this._canPlay('playRockRoll', 0.08)) return;
     try {
       const now = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
@@ -154,7 +175,7 @@ class SoundEngine {
 
   // Cannon shot
   playCannonShot() {
-    if (this.isMuted || !this.ctx || this.ctx.state !== 'running') return;
+    if (!this._canPlay('playCannonShot', 0.08)) return;
     try {
       const now = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
@@ -176,7 +197,7 @@ class SoundEngine {
 
   // Laser charging buzz
   playLaserCharge() {
-    if (this.isMuted || !this.ctx || this.ctx.state !== 'running') return;
+    if (!this._canPlay('playLaserCharge', 0.08)) return;
     try {
       const now = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
@@ -200,7 +221,7 @@ class SoundEngine {
 
   // Laser beam zap
   playLaserBlast() {
-    if (this.isMuted || !this.ctx || this.ctx.state !== 'running') return;
+    if (!this._canPlay('playLaserBlast', 0.08)) return;
     try {
       const now = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
@@ -223,7 +244,7 @@ class SoundEngine {
 
   // Near miss whistle
   playNearMiss() {
-    if (this.isMuted || !this.ctx || this.ctx.state !== 'running') return;
+    if (!this._canPlay('playNearMiss', 0.06)) return;
     try {
       const now = this.ctx.currentTime;
       const osc = this.ctx.createOscillator();
