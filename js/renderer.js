@@ -452,7 +452,6 @@ class GameRenderer {
     // 6. Player (Mr. Oops / 1v1 Versus Players)
     if (player) {
       if (Array.isArray(player)) {
-        // Zero-allocation depth sorting for 2 players
         if (player.length === 2) {
           const p0 = player[0];
           const p1 = player[1];
@@ -464,8 +463,10 @@ class GameRenderer {
             this.drawPlayer(p0, obstacles);
           }
         } else {
-          for (let i = 0; i < player.length; i++) {
-            this.drawPlayer(player[i], obstacles);
+          // Sort players by animY for correct isometric/vertical depth
+          const sorted = [...player].sort((a, b) => (a.animY || 0) - (b.animY || 0));
+          for (let i = 0; i < sorted.length; i++) {
+            this.drawPlayer(sorted[i], obstacles);
           }
         }
       } else {
@@ -501,7 +502,7 @@ class GameRenderer {
     } else if (theme === 'allstar') {
       c1 = '#251b2f';
       c2 = '#0e111a';
-    } else if (theme === 'versus') {
+    } else if (theme === 'versus' || theme === 'versus4p' || theme === 'versus3p') {
       c1 = '#1c1f36';
       c2 = '#0b0d18';
     }
@@ -1115,7 +1116,25 @@ class GameRenderer {
     const bodyTopY = headY + headRadius;
     const bodyBottomY = 2;
 
+    const isInvulnerable = Boolean(!isDead && player.invulnerableTimer && player.invulnerableTimer > 0);
+    if (isInvulnerable) {
+      if (Math.floor(Date.now() / 70) % 2 === 0) {
+        ctx.globalAlpha = 0.35;
+      }
+      // Glowing shield aura ring
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255, 215, 0, 0.85)';
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([5, 4]);
+      ctx.lineDashOffset = -Date.now() / 45;
+      ctx.beginPath();
+      ctx.arc(0, -14, 25, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
     if (isDead) {
+      ctx.globalAlpha = 0.45;
       ctx.strokeStyle = '#1c1c1e';
       ctx.lineWidth = 3.5;
       ctx.lineCap = 'round';
@@ -1144,7 +1163,26 @@ class GameRenderer {
       ctx.moveTo(-14, bodyBottomY + 6); ctx.lineTo(0, bodyBottomY); ctx.lineTo(14, bodyBottomY + 6);
       ctx.stroke();
 
-      this.drawOopsBubble(ctx, 0, headY - 26);
+      if (player.id && player.id >= 1) {
+        const colors = ['#007aff', '#ff3b30', '#30d158', '#ff9f0a'];
+        const pColor = player.color || colors[(player.id - 1) % colors.length] || '#8e8e93';
+        const badgeY = headY - 14;
+        ctx.fillStyle = pColor;
+        drawRoundedRect(ctx, -14, badgeY, 28, 13, 6);
+        ctx.fill();
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        drawRoundedRect(ctx, -14, badgeY, 28, 13, 6);
+        ctx.stroke();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '900 8.5px "Fredoka", "Bungee", sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`P${player.id} 💀`, 0, badgeY + 7);
+      } else {
+        this.drawOopsBubble(ctx, 0, headY - 26);
+      }
 
     } else {
       ctx.strokeStyle = '#1c1c1e';
@@ -1216,10 +1254,11 @@ class GameRenderer {
         ctx.stroke();
       }
 
-      // Versus Mode: Headband & Floating Player Indicator (P1 Blue / P2 Red)
-      if (player.id === 1 || player.id === 2 || player.color) {
-        const pColor = player.id === 1 ? '#007aff' : (player.id === 2 ? '#ff3b30' : (player.color || '#34c759'));
-        const pLabel = player.id === 1 ? 'P1' : (player.id === 2 ? 'P2' : 'P');
+      // Multiplayer Indicator (P1 Blue / P2 Red / P3 Green / P4 Yellow)
+      if (player.id >= 1 || player.color) {
+        const colors = ['#007aff', '#ff3b30', '#30d158', '#ff9f0a'];
+        const pColor = player.color || colors[(player.id - 1) % colors.length] || '#007aff';
+        const pLabel = player.id ? `P${player.id}${player.isAi ? ' [BOT]' : ''}` : 'P';
 
         // Colored Headband with border
         ctx.fillStyle = pColor;
@@ -1227,8 +1266,8 @@ class GameRenderer {
         ctx.fill();
 
         // Animated headband flapping tail
-        const tailSide = player.id === 1 ? -1 : 1;
-        const wave = Math.sin(this.bgTime * 14) * 3;
+        const tailSide = (player.id % 2 === 1) ? -1 : 1;
+        const wave = Math.sin(this.bgTime * 14 + (player.id || 0)) * 3;
         ctx.beginPath();
         ctx.moveTo(tailSide * (headRadius - 1), headY - 2);
         ctx.quadraticCurveTo(tailSide * (headRadius + 7), headY - 5 + wave, tailSide * (headRadius + 12), headY + wave);
@@ -1236,18 +1275,19 @@ class GameRenderer {
         ctx.strokeStyle = pColor;
         ctx.stroke();
 
-        // Floating P1/P2 pill badge above head
+        // Floating P1~P4 pill badge above head
         const badgeY = headY - 24;
+        const badgeW = player.isAi ? 46 : 24;
         ctx.fillStyle = pColor;
-        drawRoundedRect(ctx, -12, badgeY, 24, 13, 6);
+        drawRoundedRect(ctx, -badgeW / 2, badgeY, badgeW, 13, 6);
         ctx.fill();
         ctx.strokeStyle = '#ffffff';
         ctx.lineWidth = 1.5;
-        drawRoundedRect(ctx, -12, badgeY, 24, 13, 6);
+        drawRoundedRect(ctx, -badgeW / 2, badgeY, badgeW, 13, 6);
         ctx.stroke();
 
         ctx.fillStyle = '#ffffff';
-        ctx.font = '900 9px "Fredoka", "Bungee", sans-serif';
+        ctx.font = '900 8.5px "Fredoka", "Bungee", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(pLabel, 0, badgeY + 7);

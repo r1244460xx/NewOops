@@ -18,10 +18,19 @@ class Game {
 
     // Versus Mode state
     this.isVersus = false;
+    this.isVersus4p = false;
     this.versusScores = { p1: 0, p2: 0 };
+    this.versus4pScores = [0, 0, 0, 0];
+    this.versusPlayerCount = 4;
     this.versusTargetWins = 3;
     this.versusWinner = null;
+    this.versus4pWinner = null;
     this.versusRoundDelay = 0;
+    this.versus4pRoundDelay = 0;
+    this.aiUpdateCooldown = 0;
+    this.humanP2Controlled = false;
+    this.humanP3Controlled = false;
+    this.humanP4Controlled = false;
     this.players = [];
 
     // LAN Multiplayer state
@@ -103,11 +112,13 @@ class Game {
     requestAnimationFrame((t) => this.gameLoop(t));
   }
 
-  createPlayer(col, row, index = 0, isVersus = false) {
+  createPlayer(col, row, index = 0, isVersus = false, color = null) {
     const hopDuration = window.configManager ? window.configManager.get('hopDuration') : 0.11;
     return {
       id: isVersus ? index + 1 : 0,
       playerIndex: index,
+      color: color,
+      isAi: false,
       col: col,
       row: row,
       animX: col,
@@ -130,7 +141,8 @@ class Game {
       stunTimer: 0,
       recoilX: 0,
       recoilY: 0,
-      afterimageTimer: 0
+      afterimageTimer: 0,
+      invulnerableTimer: 0
     };
   }
 
@@ -164,9 +176,10 @@ class Game {
     const net = window.networkManager;
     if (!net) return;
 
-    net.onInput = (payload) => {
-      if (this.netRole === 'host' && this.isVersus && this.state === 'PLAYING') {
-        this.movePlayer(1, payload.dx, payload.dy);
+    net.onInput = (payload, playerIndex) => {
+      if (this.netRole === 'host' && (this.isVersus || this.isVersus4p) && this.state === 'PLAYING') {
+        const pIdx = (typeof playerIndex === 'number') ? playerIndex : 1;
+        this.movePlayer(pIdx, payload.dx, payload.dy);
       }
     };
 
@@ -177,6 +190,27 @@ class Game {
     };
 
     net.onJoined = (msg) => {
+      if (this.isVersus4p) {
+        const totalReq = this.versusPlayerCount || (this.mode === 'versus3p' ? 3 : 4);
+        const neededClients = totalReq - 1;
+        if (this.netRole === 'host') {
+          const clientCount = net ? net.connectedClientCount : 0;
+          if (clientCount < neededClients) {
+            this.waitingForOpponent = true;
+            this.state = 'WAITING_FOR_PLAYERS';
+            this.showWaveBanner('WAITING FOR PLAYERS', `已加入 ${clientCount + 1}/${totalReq} 人，等待全員到齊後開打...`, 0);
+          }
+          this.updateNetHudBadge();
+        } else if (this.netRole === 'client') {
+          this.waitingForOpponent = true;
+          this.state = 'WAITING_FOR_PLAYERS';
+          const pIdx = (typeof msg.playerIndex === 'number') ? msg.playerIndex : 1;
+          this.showWaveBanner(`你是 P${pIdx + 1} 號玩家`, `等待房主與其他玩家全員到齊 (${totalReq}/${totalReq})...`, 0);
+          this.updateNetHudBadge();
+        }
+        return;
+      }
+
       if (this.netRole === 'host') {
         if (msg.opponent_present && (this.state === 'WAITING_FOR_PLAYERS' || this.waitingForOpponent)) {
           this.waitingForOpponent = false;
@@ -190,12 +224,29 @@ class Game {
       }
     };
 
-    net.onOpponentJoined = () => {
+    net.onOpponentJoined = (msg) => {
       this.updateNetHudBadge();
       if (this.netRole === 'host') {
-        if (this.state === 'WAITING_FOR_PLAYERS' || this.waitingForOpponent) {
-          this.waitingForOpponent = false;
-          // WebRTC P2P handshake starts automatically; countdown triggers on onP2PConnected
+        if (this.isVersus4p) {
+          const totalReq = this.versusPlayerCount || (this.mode === 'versus3p' ? 3 : 4);
+          const neededClients = totalReq - 1;
+          const pIdx = msg && typeof msg.playerIndex === 'number' ? msg.playerIndex : null;
+          if (pIdx !== null && this.players && this.players[pIdx]) {
+            this.players[pIdx].isAi = false;
+            this.updateVersus4pHud();
+          }
+          const clientCount = net ? net.connectedClientCount : 0;
+          if (clientCount < neededClients) {
+            this.waitingForOpponent = true;
+            this.state = 'WAITING_FOR_PLAYERS';
+            const total = (msg && msg.totalClients ? msg.totalClients : clientCount) + 1;
+            this.showWaveBanner('WAITING FOR PLAYERS', `已加入 ${total}/${totalReq} 人，等待全員到齊後開打...`, 0);
+          }
+        } else {
+          if (this.state === 'WAITING_FOR_PLAYERS' || this.waitingForOpponent) {
+            this.waitingForOpponent = false;
+            // WebRTC P2P handshake starts automatically; countdown triggers on onP2PConnected
+          }
         }
       }
     };
@@ -209,12 +260,38 @@ class Game {
       }
     };
 
-    net.onP2PConnected = () => {
-      console.log('[Game] ⚡ WebRTC P2P Connected successfully!');
-      this.waitingForOpponent = false;
+    net.onP2PConnected = (info) => {
+      console.log('[Game] ⚡ WebRTC P2P Connected successfully!', info);
       this.updateNetHudBadge();
 
-      // Host initiates 3-second match countdown once direct P2P is established!
+      if (this.isVersus4p) {
+        const totalReq = this.versusPlayerCount || (this.mode === 'versus3p' ? 3 : 4);
+        const neededClients = totalReq - 1;
+        if (info && typeof info.playerIndex === 'number' && this.players && this.players[info.playerIndex]) {
+          this.players[info.playerIndex].isAi = false;
+          this.updateVersus4pHud();
+        }
+
+        const clientCount = net ? net.connectedClientCount : 0;
+        if (clientCount >= neededClients) {
+          // Exactly all players ready: Host (P1) + Clients
+          this.waitingForOpponent = false;
+          if (this.netRole === 'host' && (this.state === 'WAITING_FOR_PLAYERS' || this.waitingForOpponent || this.state === 'START_COUNTDOWN')) {
+            this.startMatchCountdown(3);
+          }
+        } else {
+          this.waitingForOpponent = true;
+          this.state = 'WAITING_FOR_PLAYERS';
+          this.showWaveBanner('WAITING FOR PLAYERS', `已連線 ${clientCount + 1}/${totalReq} 人，等待全員到齊後開打...`, 0);
+          if (this.netRole === 'host') {
+            this.broadcastHostState();
+          }
+        }
+        return;
+      }
+
+      // 1v1 versus mode
+      this.waitingForOpponent = false;
       if (this.netRole === 'host' && (this.state === 'WAITING_FOR_PLAYERS' || this.waitingForOpponent || this.state === 'START_COUNTDOWN')) {
         this.startMatchCountdown(3);
       }
@@ -236,8 +313,33 @@ class Game {
       this.updateNetHudBadge();
     };
 
-    net.onOpponentLeft = () => {
+    net.onOpponentLeft = (msg) => {
       this.updateNetHudBadge();
+      if (this.isVersus4p) {
+        const totalReq = this.versusPlayerCount || (this.mode === 'versus3p' ? 3 : 4);
+        const pIdx = msg && typeof msg.playerIndex === 'number' ? msg.playerIndex : null;
+        const pNames = ['P1', 'P2', 'P3', 'P4'];
+        const leftName = (pIdx !== null && pNames[pIdx]) ? pNames[pIdx] : '有玩家';
+
+        if (this.netRole === 'host') {
+          const clientCount = net ? net.connectedClientCount : 0;
+          this.waitingForOpponent = true;
+          this.state = 'WAITING_FOR_PLAYERS';
+          this.showWaveBanner('PLAYER LEFT', `${leftName} 已離線！目前 ${clientCount + 1}/${totalReq} 人，等待全員到齊...`, 0);
+          this.sound.stopBgm();
+          this.broadcastHostState();
+        } else if (this.netRole === 'client') {
+          this.state = 'WAITING_FOR_PLAYERS';
+          if (msg && msg.role === 'host') {
+            this.showWaveBanner('HOST LEFT', '房主已離開房間，連線已關閉', 0);
+          } else {
+            this.showWaveBanner('PLAYER LEFT', `${leftName} 已離線，等待全員到齊...`, 0);
+          }
+          this.sound.stopBgm();
+        }
+        return;
+      }
+
       if (this.netRole === 'host') {
         this.showWaveBanner('OPPONENT LEFT', 'P2 DISCONNECTED', 0);
         this.pauseGame('p2_left');
@@ -251,7 +353,7 @@ class Game {
       if (typeof prevOnPing === 'function') {
         prevOnPing(pingMs, isP2P);
       }
-      if (this.mode === 'versus' && isP2P) {
+      if ((this.mode === 'versus' || this.mode === 'versus4p') && isP2P) {
         this.updateNetHudBadge(pingMs);
       }
     };
@@ -294,6 +396,44 @@ class Game {
     if (!badge) return;
 
     const net = window.networkManager;
+
+    if (this.mode === 'versus4p' || this.mode === 'versus3p' || this.isVersus4p) {
+      const totalReq = this.versusPlayerCount || (this.mode === 'versus3p' ? 3 : 4);
+      const targetClients = totalReq - 1;
+      if (!this.netRole) {
+        badge.textContent = `⚡ 本機${totalReq}人 (0ms)`;
+        badge.className = `hud-net-badge connected`;
+        return;
+      }
+      const clientCount = net ? net.connectedClientCount : 0;
+      let ping = null;
+      if (typeof pingMs === 'number' && !isNaN(pingMs)) {
+        ping = pingMs;
+      } else if (net && typeof net.p2pPing === 'number' && !isNaN(net.p2pPing)) {
+        ping = net.p2pPing;
+      }
+      const pingStr = ping !== null ? `${ping}ms` : '-- ms';
+
+      if (this.netRole === 'host') {
+        if (clientCount < targetClients) {
+          badge.textContent = `🟡 等待玩家加入 (${clientCount + 1}/${totalReq})...`;
+          badge.className = 'hud-net-badge waiting';
+        } else {
+          badge.textContent = `🟢 ${totalReq} 人已到齊 · ${pingStr}`;
+          badge.className = 'hud-net-badge connected';
+        }
+      } else {
+        const myIdx = (net && typeof net.playerIndex === 'number') ? (net.playerIndex + 1) : 2;
+        if (!net || !net.isP2PActive) {
+          badge.textContent = `🟡 P${myIdx} 連線中 (等待全員 ${totalReq}/${totalReq})...`;
+          badge.className = 'hud-net-badge waiting';
+        } else {
+          badge.textContent = `🟢 P${myIdx} 已連線 · ${pingStr}`;
+          badge.className = 'hud-net-badge connected';
+        }
+      }
+      return;
+    }
 
     if (this.mode === 'versus') {
       const isP2P = Boolean(net && net.isP2PActive);
@@ -371,14 +511,20 @@ class Game {
       state: this.state,
       mode: this.mode,
       wave: this.wave,
+      isVersus4p: this.isVersus4p,
+      versusPlayerCount: this.versusPlayerCount,
       versusScores: this.versusScores,
       versusWinner: this.versusWinner,
+      versus4pScores: this.versus4pScores,
+      versus4pWinner: this.versus4pWinner,
       pausedBy: this.pausedBy,
       waitingForOpponent: this.waitingForOpponent,
       rematchVotes: this.rematchVotes,
       players: this.players.map(p => ({
         id: p.id,
         playerIndex: p.playerIndex,
+        color: p.color,
+        isAi: p.isAi,
         col: p.col,
         row: p.row,
         animX: p.animX,
@@ -431,6 +577,7 @@ class Game {
     const prevRemoteState = this.state;
     this.state = msg.state;
     this.mode = msg.mode || 'versus';
+    this.isVersus4p = Boolean(msg.isVersus4p);
     this.wave = msg.wave || 1;
     this.pausedBy = msg.pausedBy || null;
     if (msg.rematchVotes) {
@@ -451,9 +598,24 @@ class Game {
       this.versusWinner = msg.versusWinner;
     }
 
+    if (msg.versus4pScores) {
+      this.versus4pScores = msg.versus4pScores;
+      this.updateVersus4pHud();
+    }
+    if (msg.versus4pWinner !== undefined) {
+      this.versus4pWinner = msg.versus4pWinner;
+    }
+    if (msg.versusPlayerCount) {
+      this.versusPlayerCount = msg.versusPlayerCount;
+    }
+
     if (msg.players && Array.isArray(msg.players)) {
       this.players = msg.players;
-      this.player = this.players[1] || this.players[0];
+      const net = window.networkManager;
+      const myIdx = (net && typeof net.playerIndex === 'number')
+        ? net.playerIndex
+        : (this.isVersus4p ? 1 : 1);
+      this.player = this.players[myIdx] || this.players[1] || this.players[0];
       for (let i = 0; i < this.players.length; i++) {
         const pl = this.players[i];
         if (pl.momentumSteps >= 2 && pl.isHopping && (pl.momentumTimer > 0 || pl.momentumTimer === undefined) && !pl.isDead) {
@@ -498,17 +660,20 @@ class Game {
     if (this.state === 'GAME_OVER' && window.onGameOverCallback && !this._gameOverFired) {
       this._gameOverFired = true;
       window.onGameOverCallback({
-        mode: 'versus',
-        wave: this.versusScores.p1 + this.versusScores.p2,
-        score: Math.max(this.versusScores.p1, this.versusScores.p2),
+        mode: this.isVersus4p ? (this.versusPlayerCount === 3 ? 'versus3p' : 'versus4p') : 'versus',
+        wave: this.isVersus4p ? (this.versus4pScores ? this.versus4pScores.reduce((a, b) => a + b, 0) : 0) : (this.versusScores.p1 + this.versusScores.p2),
+        score: this.isVersus4p ? Math.max(...(this.versus4pScores || [0])) : Math.max(this.versusScores.p1, this.versusScores.p2),
         versusScores: { ...this.versusScores },
-        winner: this.versusWinner,
+        versus4pScores: this.versus4pScores ? [...this.versus4pScores] : [0, 0, 0, 0],
+        winner: this.isVersus4p ? this.versus4pWinner : this.versusWinner,
         targetWins: this.versusTargetWins,
         netRole: 'client'
       });
       this.updateRematchUi(false);
     } else if (this.state === 'PLAYING') {
       this._gameOverFired = false;
+      const goOverlay = document.getElementById('gameover-overlay');
+      if (goOverlay) goOverlay.classList.add('hidden');
     }
   }
 
@@ -533,6 +698,9 @@ class Game {
     this.pausedBy = null;
     this.rematchVotes = { p1: false, p2: false };
     this.rematchStarting = false;
+
+    this.isVersus = false;
+    this.isVersus4p = false;
 
     if (mode === 'versus') {
       this.isVersus = true;
@@ -566,8 +734,52 @@ class Game {
       return;
     }
 
-    this.isVersus = false;
+    if (mode === 'versus4p' || mode === 'versus3p') {
+      this.isVersus4p = true;
+      this.versusPlayerCount = (mode === 'versus3p') ? 3 : 4;
+      this.versus4pScores = [0, 0, 0, 0];
+      this.versus4pWinner = null;
+      this.versus4pRoundDelay = 0;
+      this.humanP2Controlled = false;
+      this.humanP3Controlled = false;
+      this.humanP4Controlled = false;
+      const cfg = window.configManager;
+      this.versusTargetWins = cfg ? Math.max(1, Math.round(cfg.get('versusTargetWins') || 3)) : 3;
+
+      const neededClients = this.versusPlayerCount - 1;
+
+      if (this.netRole === 'host') {
+        const net = window.networkManager;
+        this.setupVersus4pBoard(this.versusPlayerCount);
+        if (net && net.connectedClientCount >= neededClients) {
+          this.waitingForOpponent = false;
+          this.startMatchCountdown(3);
+        } else {
+          this.waitingForOpponent = true;
+          this.state = 'WAITING_FOR_PLAYERS';
+          const count = net ? net.connectedClientCount + 1 : 1;
+          this.showWaveBanner('WAITING FOR PLAYERS', `已加入 ${count}/${this.versusPlayerCount} 人，等待全員到齊後開打...`, 0);
+          this.broadcastHostState();
+        }
+        return;
+      } else if (this.netRole === 'client') {
+        this.state = 'WAITING_FOR_PLAYERS';
+        this.setupVersus4pBoard(this.versusPlayerCount);
+        this.showWaveBanner('CONNECTING...', `等待房主與其他玩家全員到齊 (${this.versusPlayerCount}/${this.versusPlayerCount})...`, 0);
+        return;
+      }
+
+      this.startVersus4pRound();
+      return;
+    }
+
     this.state = 'PLAYING';
+    const maxLives = window.configManager ? Math.max(1, parseInt(window.configManager.get('singlePlayerLives'), 10) || 3) : 3;
+    this.maxLives = maxLives;
+    this.lives = maxLives;
+    this.invulnerableTimer = 0;
+    this.updateLivesHud();
+
     this.player = this.createPlayer(2, 3, 0, false);
     this.players = [this.player];
 
@@ -577,7 +789,8 @@ class Game {
     this.sound.resume();
     this.sound.startBgm();
 
-    this.showWaveBanner(`LEVEL ${this.wave}`, 'GET READY!');
+    const hearts = this.lives <= 5 ? '❤️'.repeat(this.lives) : `❤️ x ${this.lives}`;
+    this.showWaveBanner(`LEVEL ${this.wave}`, `GET READY! 生命：${hearts}`);
   }
 
   setupVersusBoard() {
@@ -587,6 +800,39 @@ class Game {
     this.player = this.netRole === 'client' ? p2 : p1;
     this.obstacleManager.reset('versus');
     this.updateVersusHud();
+  }
+
+  setupVersus4pBoard(playerCount) {
+    const pCount = playerCount || this.versusPlayerCount || (this.mode === 'versus3p' ? 3 : 4);
+    this.versusPlayerCount = pCount;
+    const p1 = this.createPlayer(2, 2, 0, true, '#007aff');
+    const p2 = this.createPlayer(3, 2, 1, true, '#ff3b30');
+    const p3 = this.createPlayer(2, 3, 2, true, '#30d158');
+    const p4 = this.createPlayer(3, 3, 3, true, '#ff9f0a');
+
+    const all = [p1, p2, p3, p4];
+    this.players = all.slice(0, pCount);
+
+    // In online/LAN mode, NO AI: all slots are human players
+    if (this.netRole) {
+      for (const p of this.players) p.isAi = false;
+    } else {
+      p1.isAi = false;
+      p2.isAi = !this.humanP2Controlled;
+      p3.isAi = !this.humanP3Controlled;
+      if (pCount >= 4) {
+        p4.isAi = !this.humanP4Controlled;
+      }
+    }
+
+    const net = window.networkManager;
+    const myIdx = (this.netRole === 'client' && net && typeof net.playerIndex === 'number')
+      ? net.playerIndex
+      : 0;
+    this.player = this.players[myIdx] || p1;
+
+    this.obstacleManager.reset(pCount === 3 ? 'versus3p' : 'versus4p');
+    this.updateVersus4pHud();
   }
 
   startMatchCountdown(seconds = 3) {
@@ -619,7 +865,11 @@ class Game {
         }
       }
       if (this.startCountdownTimer <= 0) {
-        this.startVersusRound();
+        if (this.isVersus4p) {
+          this.startVersus4pRound();
+        } else {
+          this.startVersusRound();
+        }
       } else if (this.netRole === 'host') {
         this.netBroadcastTimer += dt;
         if (this.netBroadcastTimer >= this.netBroadcastInterval) {
@@ -673,6 +923,89 @@ class Game {
       this.lastVersusP1 = this.versusScores.p1;
       this.lastVersusP2 = this.versusScores.p2;
       valEl.innerHTML = `<span style="color:#007aff; font-weight:900;">P1: ${this.versusScores.p1}</span> <span style="color:#8e8e93;">-</span> <span style="color:#ff3b30; font-weight:900;">P2: ${this.versusScores.p2}</span>`;
+    }
+  }
+
+  startVersus4pRound() {
+    this.state = 'PLAYING';
+    this.wave = 1;
+    this.survivalTimer = 0;
+    this.starSpawnCooldown = 4;
+    this.collectibles = [];
+    this.hitFreezeTimer = 0;
+    this.gameOverDelay = 0;
+    this.versus4pRoundDelay = 0;
+    this.lastShownBannerKey = null;
+
+    const pCount = this.versusPlayerCount || (this.mode === 'versus3p' ? 3 : 4);
+    // Center 2x2: (2,2), (3,2), (2,3), (3,3)
+    const p1 = this.createPlayer(2, 2, 0, true, '#007aff');
+    const p2 = this.createPlayer(3, 2, 1, true, '#ff3b30');
+    const p3 = this.createPlayer(2, 3, 2, true, '#30d158');
+    const p4 = this.createPlayer(3, 3, 3, true, '#ff9f0a');
+
+    const all = [p1, p2, p3, p4];
+    this.players = all.slice(0, pCount);
+
+    // In online/LAN mode, NO AI: all slots are human players
+    if (this.netRole) {
+      for (const p of this.players) p.isAi = false;
+    } else {
+      p1.isAi = false;
+      p2.isAi = !this.humanP2Controlled;
+      p3.isAi = !this.humanP3Controlled;
+      if (pCount >= 4) {
+        p4.isAi = !this.humanP4Controlled;
+      }
+    }
+
+    const net = window.networkManager;
+    const myIdx = (this.netRole === 'client' && net && typeof net.playerIndex === 'number')
+      ? net.playerIndex
+      : 0;
+    this.player = this.players[myIdx] || p1;
+
+    this.obstacleManager.reset(pCount === 3 ? 'versus3p' : 'versus4p');
+
+    this.sound.resume();
+    this.sound.startBgm();
+
+    const roundNum = this.versus4pScores.slice(0, pCount).reduce((a, b) => a + b, 0) + 1;
+    this.showWaveBanner(
+      `ROUND ${roundNum}`,
+      `${pCount}-PLAYER BATTLE ROYALE (FIRST TO ${this.versusTargetWins} WINS)`
+    );
+
+    this.updateVersus4pHud();
+    if (this.netRole === 'host') {
+      this.broadcastHostState();
+    }
+  }
+
+  updateVersus4pHud() {
+    if (!this.isVersus4p) return;
+    const pNames = ['p1', 'p2', 'p3', 'p4'];
+    const pCount = this.players ? this.players.length : (this.versusPlayerCount || 4);
+    for (let i = 0; i < 4; i++) {
+      const pill = document.getElementById(`pill-${pNames[i]}`) || document.getElementById(`v4p-s${i + 1}`);
+      if (pill) {
+        if (i >= pCount) {
+          pill.style.display = 'none';
+          continue;
+        }
+        pill.style.display = 'inline-block';
+        const score = this.versus4pScores[i] || 0;
+        const pl = this.players[i];
+        const isDead = pl ? pl.isDead : false;
+        const isAi = pl ? pl.isAi : false;
+        const botTag = (!this.netRole && isAi) ? ' [BOT]' : '';
+        pill.textContent = `P${i + 1}${botTag}: ${score}${isDead ? ' 💀' : ''}`;
+        if (isDead) {
+          pill.classList.add('dead');
+        } else {
+          pill.classList.remove('dead');
+        }
+      }
     }
   }
 
@@ -858,6 +1191,7 @@ class Game {
     }
     this.state = 'MENU';
     this.isVersus = false;
+    this.isVersus4p = false;
     this.netRole = null;
     this.sound.stopBgm();
     if (window.networkManager) {
@@ -892,8 +1226,17 @@ class Game {
       return;
     }
 
-    const p = this.isVersus ? this.players[playerIdx] : this.player;
+    const p = (this.isVersus || this.isVersus4p) ? this.players[playerIdx] : this.player;
     if (!p || p.isDead) return;
+
+    // In 4P mode, if human input moves an AI player, take over control
+    if (this.isVersus4p && playerIdx > 0 && p.isAi) {
+      p.isAi = false;
+      if (playerIdx === 1) this.humanP2Controlled = true;
+      if (playerIdx === 2) this.humanP3Controlled = true;
+      if (playerIdx === 3) this.humanP4Controlled = true;
+      this.updateVersus4pHud();
+    }
 
     // Stun check: player cannot move during stun penalty (Option B or Clash recoil)
     if (p.stunTimer && p.stunTimer > 0) {
@@ -903,6 +1246,9 @@ class Game {
     // If already in middle of hop, buffer next move for snappy continuous control
     if (p.isHopping && p.hopProgress < 0.8) {
       p.bufferedMove = { dx, dy };
+      if (!this.isVersus && !this.isVersus4p) {
+        this.bufferedMove = { dx, dy };
+      }
       return;
     }
 
@@ -931,9 +1277,8 @@ class Game {
     let pushedOpponent = false;
 
     // Versus Collision Logic (solid, ghost, push)
-    if (this.isVersus) {
-      const oppIdx = 1 - playerIdx;
-      const opponent = this.players[oppIdx];
+    if (this.isVersus || this.isVersus4p) {
+      const opponent = this.players.find((other, idx) => idx !== playerIdx && !other.isDead && other.col === newCol && other.row === newRow);
       const collisionMode = cfg ? cfg.get('versusCollisionMode') : 'push';
 
       if (opponent && !opponent.isDead && opponent.col === newCol && opponent.row === newRow) {
@@ -990,7 +1335,8 @@ class Game {
           if (hasMomentum) {
             const pushCol = opponent.col + dx;
             const pushRow = opponent.row + dy;
-            if (pushCol >= 0 && pushCol <= 5 && pushRow >= 0 && pushRow <= 5) {
+            const isTileBlocked = this.players.some(o => !o.isDead && o !== opponent && o.col === pushCol && o.row === pushRow);
+            if (pushCol >= 0 && pushCol <= 5 && pushRow >= 0 && pushRow <= 5 && !isTileBlocked) {
               // Opponent is knocked away!
               opponent.prevCol = opponent.col;
               opponent.prevRow = opponent.row;
@@ -1016,7 +1362,7 @@ class Game {
               p.momentumTimer = 0;
               p.momentumDir = { dx: 0, dy: 0 };
             } else {
-              // Against edge of grid: pinned against wall, cannot be pushed
+              // Against edge of grid or blocked by another player: pinned!
               p.stunTimer = 0.25;
               p.recoilX = -dx * 0.25;
               p.recoilY = -dy * 0.25;
@@ -1025,7 +1371,8 @@ class Game {
               p.momentumDir = { dx: 0, dy: 0 };
               this.playSound('playBlocked');
               const pPos = this.renderer.gridToScreen(p.col, p.row);
-              this.renderer.addFloatingText('WALL PIN!', pPos.x, pPos.y - 20, '#ff3b30');
+              const pinMsg = isTileBlocked ? 'BLOCKED!' : 'WALL PIN!';
+              this.renderer.addFloatingText(pinMsg, pPos.x, pPos.y - 20, '#ff3b30');
               if (this.netRole === 'host') this.broadcastHostState();
               return;
             }
@@ -1116,7 +1463,7 @@ class Game {
   // Move towards clicked tile (adjacent only)
   moveToTile(col, row) {
     if (this.state !== 'PLAYING') return;
-    const targetPlayer = this.isVersus ? this.players[0] : this.player;
+    const targetPlayer = (this.isVersus || this.isVersus4p) ? this.players[0] : this.player;
     if (!targetPlayer || targetPlayer.isDead) return;
 
     const dx = col - targetPlayer.col;
@@ -1157,13 +1504,15 @@ class Game {
 
     if (nearMiss) {
       const p = player || this.player;
-      if (!this.isVersus) {
+      if (!this.isVersus && !this.isVersus4p) {
         this.score += 100;
       }
       this.sound.playNearMiss();
       const pos = this.renderer.gridToScreen(p.col, p.row);
-      const tag = this.isVersus ? (p.playerIndex === 0 ? 'P1 DODGE!' : 'P2 DODGE!') : 'NICE DODGE! +100';
-      const color = this.isVersus ? (p.playerIndex === 0 ? '#007aff' : '#ff3b30') : '#34c759';
+      const isMulti = this.isVersus || this.isVersus4p;
+      const colors = ['#007aff', '#ff3b30', '#30d158', '#ff9f0a'];
+      const tag = isMulti ? `P${p.playerIndex + 1} DODGE!` : 'NICE DODGE! +100';
+      const color = isMulti ? (colors[p.playerIndex] || '#007aff') : '#34c759';
       this.renderer.addFloatingText(tag, pos.x, pos.y - 25, color);
     }
   }
@@ -1176,13 +1525,14 @@ class Game {
       const star = this.collectibles[i];
       if (star.col === pl.col && star.row === pl.row) {
         this.collectibles.splice(i, 1);
-        if (!this.isVersus) {
+        if (!this.isVersus && !this.isVersus4p) {
           this.score += 300;
         }
         this.sound.playStarCollect();
 
         const pos = this.renderer.gridToScreen(pl.col, pl.row);
-        const tag = this.isVersus ? (pl.playerIndex === 0 ? 'P1 STAR!' : 'P2 STAR!') : 'STAR! +300';
+        const isMulti = this.isVersus || this.isVersus4p;
+        const tag = isMulti ? `P${pl.playerIndex + 1} STAR!` : 'STAR! +300';
         this.renderer.addFloatingText(tag, pos.x, pos.y - 30, '#ffd60a');
 
         for (let j = 0; j < 12; j++) {
@@ -1207,7 +1557,7 @@ class Game {
     const col = Math.floor(Math.random() * 6);
     const row = Math.floor(Math.random() * 6);
 
-    if (this.isVersus) {
+    if (this.isVersus || this.isVersus4p) {
       if (this.players.some(p => p.col === col && p.row === row)) return;
     } else {
       if (col === this.player.col && row === this.player.row) return;
@@ -1219,11 +1569,20 @@ class Game {
   nextWave() {
     this.wave++;
     const waveBonus = this.wave * 250;
-    if (!this.isVersus) {
+    if (!this.isVersus && !this.isVersus4p) {
       this.score += waveBonus;
     }
 
     this.obstacleManager.advanceWave(this.wave);
+  }
+
+  nextWaveFromObstacles() {
+    this.wave++;
+    const waveBonus = this.wave * 250;
+    if (!this.isVersus && !this.isVersus4p) {
+      this.score += waveBonus;
+    }
+    this.obstacleManager.wave = this.wave;
   }
 
   showWaveBanner(title, sub, duration = 1600) {
@@ -1247,9 +1606,117 @@ class Game {
     }
   }
 
+  updateLivesHud() {
+    if (!this.domElements.lives) {
+      this.domElements.lives = document.getElementById('hud-lives-val');
+    }
+    const hudLivesItem = document.getElementById('hud-lives-item');
+    if (this.isVersus || this.isVersus4p) {
+      if (hudLivesItem) hudLivesItem.classList.add('hidden');
+      return;
+    }
+    if (hudLivesItem) hudLivesItem.classList.remove('hidden');
+
+    if (this.domElements.lives) {
+      const remaining = Math.max(0, this.lives || 0);
+      if (remaining <= 5) {
+        this.domElements.lives.textContent = '❤️'.repeat(remaining) || '💀 0';
+      } else {
+        this.domElements.lives.textContent = `❤️ x ${remaining}`;
+      }
+    }
+  }
+
+  handleSinglePlayerDeath() {
+    if (this.player.isDead) return;
+    if (this.invulnerableTimer > 0) return;
+
+    this.lives--;
+    this.updateLivesHud();
+
+    if (this.lives <= 0) {
+      this.triggerGameOver();
+      return;
+    }
+
+    // Still has lives! Revive and retry current level
+    this.sound.playHit();
+    this.renderer.triggerShake(16, 0.35);
+
+    const pos = this.renderer.gridToScreen(this.player.animX, this.player.animY);
+    if (this.bloodyMode) {
+      for (let i = 0; i < 22; i++) {
+        const speed = Math.random() * 140 + 30;
+        const angle = Math.random() * Math.PI * 2;
+        this.renderer.spawnParticle({
+          x: pos.x,
+          y: pos.y - 15,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed - 40,
+          color: '#d90429',
+          radius: Math.random() * 3 + 2,
+          type: 'blood',
+          gravity: 400,
+          life: 0.7
+        });
+      }
+    } else {
+      for (let i = 0; i < 14; i++) {
+        const speed = Math.random() * 100 + 20;
+        const angle = Math.random() * Math.PI * 2;
+        this.renderer.spawnParticle({
+          x: pos.x,
+          y: pos.y - 20,
+          vx: Math.cos(angle) * speed,
+          vy: Math.sin(angle) * speed,
+          color: '#ffd60a',
+          radius: 4,
+          type: 'star',
+          life: 0.6
+        });
+      }
+    }
+
+    this.hitFreezeTimer = 0.15;
+
+    // Reset player position to safe center (2, 2)
+    this.player.col = 2;
+    this.player.row = 2;
+    this.player.targetCol = 2;
+    this.player.targetRow = 2;
+    this.player.prevCol = 2;
+    this.player.prevRow = 2;
+    this.player.animX = 2;
+    this.player.animY = 2;
+    this.player.isHopping = false;
+    this.player.hopZ = 0;
+    this.player.tiltAngle = 0;
+    this.player.momentumSteps = 0;
+    this.player.momentumTimer = 0;
+    this.player.momentumDir = { dx: 0, dy: 0 };
+    this.player.stunTimer = 0;
+    this.player.recoilX = 0;
+    this.player.recoilY = 0;
+    this.player.isScared = false;
+    this.bufferedMove = null;
+
+    // Invulnerability timer
+    this.invulnerableTimer = 1.8;
+    this.player.invulnerableTimer = 1.8;
+
+    // Restart obstacles of current level without resetting wave/level number!
+    this.obstacleManager.setWave(this.wave);
+
+    const hearts = this.lives <= 5 ? '❤️'.repeat(this.lives) : `❤️ x ${this.lives}`;
+    this.renderer.addFloatingText(`REVIVE! 剩餘 ${this.lives} 命`, pos.x, pos.y - 25, '#ff3b30');
+    this.showWaveBanner(`LEVEL ${this.wave} RETRY`, `剩餘生命：${hearts}`, 1200);
+  }
+
   triggerGameOver() {
     if (this.player.isDead) return;
     this.player.isDead = true;
+    this.lives = 0;
+    this.updateLivesHud();
 
     this.hitFreezeTimer = 0.18;
     this.gameOverDelay = 0.85;
@@ -1368,6 +1835,190 @@ class Game {
     }
   }
 
+  handleVersus4pRoundEnd(hitPlayers) {
+    if (this.state !== 'PLAYING') return;
+
+    this.hitFreezeTimer = 0.2;
+    this.sound.playHit();
+    this.renderer.triggerShake(20, 0.45);
+
+    const pColors = ['#007aff', '#ff3b30', '#30d158', '#ff9f0a'];
+    const pNames = ['P1 (藍色)', 'P2 (紅色)', 'P3 (綠色)', 'P4 (黃色)'];
+
+    for (const pl of hitPlayers) {
+      if (pl.isDead) continue;
+      pl.isDead = true;
+      const pos = this.renderer.gridToScreen(pl.animX, pl.animY);
+
+      if (this.bloodyMode) {
+        for (let i = 0; i < 35; i++) {
+          const speed = Math.random() * 160 + 40;
+          const angle = Math.random() * Math.PI * 2;
+          this.renderer.spawnParticle({
+            x: pos.x,
+            y: pos.y - 15,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed - 60,
+            color: '#d90429',
+            radius: Math.random() * 4 + 3,
+            type: 'blood',
+            gravity: 400,
+            life: 0.9
+          });
+        }
+      } else {
+        const color = pColors[pl.playerIndex] || '#ffffff';
+        for (let i = 0; i < 22; i++) {
+          const speed = Math.random() * 120 + 30;
+          const angle = Math.random() * Math.PI * 2;
+          this.renderer.spawnParticle({
+            x: pos.x,
+            y: pos.y - 20,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            color: color,
+            radius: 5,
+            type: 'star',
+            life: 0.75
+          });
+        }
+      }
+    }
+
+    this.updateVersus4pHud();
+
+    const livingPlayers = this.players.filter(p => !p.isDead);
+
+    if (livingPlayers.length === 1) {
+      // 1 survivor remains -> scores point!
+      const winner = livingPlayers[0];
+      const winIdx = winner.playerIndex;
+      this.versus4pScores[winIdx]++;
+      this.updateVersus4pHud();
+
+      const bannerTitle = `🏆 ${pNames[winIdx]} 獲勝！`;
+      let scoreBoard = `目前戰績: P1 [${this.versus4pScores[0]}] | P2 [${this.versus4pScores[1]}] | P3 [${this.versus4pScores[2]}]`;
+      if (this.players.length >= 4) {
+        scoreBoard += ` | P4 [${this.versus4pScores[3]}]`;
+      }
+      this.showWaveBanner(bannerTitle, scoreBoard);
+      this.sound.playWaveClear();
+
+      if (this.versus4pScores[winIdx] >= this.versusTargetWins) {
+        this.versus4pWinner = winIdx;
+        this.gameOverDelay = 1.8;
+        this.sound.stopBgm();
+      } else {
+        this.versus4pRoundDelay = 2.0;
+      }
+    } else if (livingPlayers.length === 0) {
+      // Simultaneous elimination of all survivors -> Draw
+      this.showWaveBanner('DOUBLE KO!', 'DRAW ROUND - 全員陣亡！本局平手');
+      this.versus4pRoundDelay = 2.0;
+    } else {
+      // 2 or 3 players still alive! Round continues!
+      for (const pl of hitPlayers) {
+        const pos = this.renderer.gridToScreen(pl.animX, pl.animY);
+        this.renderer.addFloatingText(`${pNames[pl.playerIndex]} 出局!`, pos.x, pos.y - 24, '#ff3b30');
+      }
+    }
+  }
+
+  runAiBots(dt) {
+    if (!this.isVersus4p || this.netRole) return;
+    this.aiUpdateCooldown = (this.aiUpdateCooldown || 0) - dt;
+    if (this.aiUpdateCooldown > 0) return;
+    this.aiUpdateCooldown = 0.16 + Math.random() * 0.08;
+
+    const moves = [
+      { dx: 0, dy: -1 },
+      { dx: 0, dy: 1 },
+      { dx: -1, dy: 0 },
+      { dx: 1, dy: 0 }
+    ];
+
+    for (const bot of this.players) {
+      if (!bot.isAi || bot.isDead || bot.isHopping || (bot.stunTimer && bot.stunTimer > 0)) continue;
+
+      const candidates = [{ dx: 0, dy: 0 }, ...moves];
+      let bestMove = null;
+      let bestScore = -Infinity;
+
+      for (const m of candidates) {
+        const targetCol = bot.col + m.dx;
+        const targetRow = bot.row + m.dy;
+
+        // Boundaries: 0..5
+        if (targetCol < 0 || targetCol > 5 || targetRow < 0 || targetRow > 5) {
+          continue;
+        }
+
+        const occupiedOther = this.players.find(o => !o.isDead && o !== bot && o.col === targetCol && o.row === targetRow);
+        const hasBotMomentum = (bot.momentumSteps || 0) >= 2;
+        if (occupiedOther && !hasBotMomentum) {
+          continue;
+        }
+
+        let score = 0;
+
+        // 1. Center preference
+        const distToCenter = Math.abs(targetCol - 2.5) + Math.abs(targetRow - 2.5);
+        score -= distToCenter * 4;
+
+        // 2. Warning avoidance
+        if (this.obstacleManager && this.obstacleManager.warnings) {
+          for (const w of this.obstacleManager.warnings) {
+            if (w.side === 'left' || w.side === 'right') {
+              if (w.index === targetRow) score -= 180;
+            } else if (w.side === 'top' || w.side === 'bottom') {
+              if (w.index === targetCol) score -= 180;
+            }
+          }
+        }
+
+        // 3. Projectile proximity
+        if (this.obstacleManager && this.obstacleManager.obstacles) {
+          for (const obs of this.obstacleManager.obstacles) {
+            if (obs.type === 'laser') {
+              if (obs.direction === 'horizontal' && obs.index === targetRow) score -= 350;
+              if (obs.direction === 'vertical' && obs.index === targetCol) score -= 350;
+            } else {
+              const dX = (obs.x || 0) - targetCol;
+              const dY = (obs.y || 0) - targetRow;
+              const dist = Math.hypot(dX, dY);
+              if (dist < 2.0) {
+                score -= (2.0 - dist) * 220;
+              }
+            }
+          }
+        }
+
+        // 4. Momentum bonus
+        if (m.dx !== 0 || m.dy !== 0) {
+          if (bot.momentumDir && bot.momentumDir.dx === m.dx && bot.momentumDir.dy === m.dy && bot.momentumTimer > 0) {
+            score += 20;
+          }
+        }
+
+        // 5. Staying put comfort bonus if safe
+        if (m.dx === 0 && m.dy === 0) {
+          score += 15;
+        }
+
+        score += Math.random() * 6;
+
+        if (score > bestScore) {
+          bestScore = score;
+          bestMove = m;
+        }
+      }
+
+      if (bestMove && (bestMove.dx !== 0 || bestMove.dy !== 0)) {
+        this.movePlayer(bot.playerIndex, bestMove.dx, bestMove.dy);
+      }
+    }
+  }
+
   update(dt) {
     this.renderer.update(dt);
 
@@ -1415,12 +2066,26 @@ class Game {
       return;
     }
 
-    // ================= Versus Mode Update =================
-    if (this.isVersus) {
-      if (this.versusRoundDelay > 0) {
+    // ================= Versus / 4P Mode Update =================
+    if (this.isVersus || this.isVersus4p) {
+      if (this.isVersus && this.versusRoundDelay > 0) {
         this.versusRoundDelay -= dt;
         if (this.versusRoundDelay <= 0) {
           this.startVersusRound();
+        } else if (this.netRole === 'host') {
+          this.netBroadcastTimer += dt;
+          if (this.netBroadcastTimer >= this.netBroadcastInterval) {
+            this.netBroadcastTimer = 0;
+            this.broadcastHostState();
+          }
+        }
+        return;
+      }
+
+      if (this.isVersus4p && this.versus4pRoundDelay > 0) {
+        this.versus4pRoundDelay -= dt;
+        if (this.versus4pRoundDelay <= 0) {
+          this.startVersus4pRound();
         } else if (this.netRole === 'host') {
           this.netBroadcastTimer += dt;
           if (this.netBroadcastTimer >= this.netBroadcastInterval) {
@@ -1438,11 +2103,12 @@ class Game {
           this.sound.playGameOver();
           if (window.onGameOverCallback) {
             window.onGameOverCallback({
-              mode: 'versus',
-              wave: this.versusScores.p1 + this.versusScores.p2,
-              score: Math.max(this.versusScores.p1, this.versusScores.p2),
+              mode: this.isVersus4p ? (this.versusPlayerCount === 3 ? 'versus3p' : 'versus4p') : 'versus',
+              wave: this.isVersus4p ? this.versus4pScores.reduce((a, b) => a + b, 0) : this.versusScores.p1 + this.versusScores.p2,
+              score: this.isVersus4p ? Math.max(...this.versus4pScores) : Math.max(this.versusScores.p1, this.versusScores.p2),
               versusScores: { ...this.versusScores },
-              winner: this.versusWinner,
+              versus4pScores: [...this.versus4pScores],
+              winner: this.isVersus4p ? this.versus4pWinner : this.versusWinner,
               targetWins: this.versusTargetWins,
               netRole: this.netRole
             });
@@ -1457,6 +2123,11 @@ class Game {
           }
         }
         return;
+      }
+
+      // 0. Run AI bots for 4P mode
+      if (this.isVersus4p) {
+        this.runAiBots(dt);
       }
 
       // 1. Update hop animation, timers, and recoil for each player
@@ -1532,7 +2203,11 @@ class Game {
 
       const hitPlayers = this.obstacleManager.checkCollisions(this.players);
       if (hitPlayers && hitPlayers.length > 0) {
-        this.handleVersusRoundEnd(hitPlayers);
+        if (this.isVersus4p) {
+          this.handleVersus4pRoundEnd(hitPlayers);
+        } else {
+          this.handleVersusRoundEnd(hitPlayers);
+        }
         if (this.netRole === 'host') this.broadcastHostState();
         return;
       }
@@ -1598,6 +2273,15 @@ class Game {
       return;
     }
 
+    // Invulnerability timer decay (Single Player)
+    if (this.invulnerableTimer > 0) {
+      this.invulnerableTimer -= dt;
+      if (this.invulnerableTimer < 0) this.invulnerableTimer = 0;
+      this.player.invulnerableTimer = this.invulnerableTimer;
+    } else {
+      this.player.invulnerableTimer = 0;
+    }
+
     // Momentum timeout decay (Single Player)
     if (this.player.momentumTimer > 0) {
       this.player.momentumTimer -= dt;
@@ -1629,10 +2313,11 @@ class Game {
         this.player.tiltAngle = 0;
 
         // Process buffered move immediately upon landing
-        if (this.bufferedMove) {
-          const m = this.bufferedMove;
+        const pendingMove = this.bufferedMove || this.player.bufferedMove;
+        if (pendingMove) {
           this.bufferedMove = null;
-          this.movePlayer(m.dx, m.dy);
+          this.player.bufferedMove = null;
+          this.movePlayer(pendingMove.dx, pendingMove.dy);
         }
       } else {
         const t = this.player.hopProgress;
@@ -1657,13 +2342,13 @@ class Game {
     this.obstacleManager.update(dt, this.player);
 
     // 4. Check Collision
-    if (this.obstacleManager.checkCollisions(this.player)) {
-      this.triggerGameOver();
+    if (this.invulnerableTimer <= 0 && this.obstacleManager.checkCollisions(this.player)) {
+      this.handleSinglePlayerDeath();
       return;
     }
 
     // 5. Update scared reaction face
-    this.player.isScared = this.obstacleManager.isHazardNearPlayer(this.player);
+    this.player.isScared = (this.invulnerableTimer <= 0) && this.obstacleManager.isHazardNearPlayer(this.player);
 
     // 6. Check Wave Completion
     if (this.obstacleManager.isWaveComplete) {
@@ -1695,15 +2380,22 @@ class Game {
 
     this.renderer.render(
       this.state,
-      this.isVersus ? this.players : this.player,
+      (this.isVersus || this.isVersus4p) ? this.players : this.player,
       this.obstacleManager.obstacles,
       this.obstacleManager.warnings,
       this.collectibles,
-      this.mode
+      this.isVersus4p ? 'versus4p' : this.mode
     );
 
     if (this.state === 'PLAYING') {
-      if (this.isVersus) {
+      if (this.isVersus4p) {
+        if (!this.domElements.wave) this.domElements.wave = document.getElementById('hud-wave-val');
+        if (this.domElements.wave && this.lastRenderedWave !== this.wave) {
+          this.domElements.wave.textContent = this.wave;
+          this.lastRenderedWave = this.wave;
+        }
+        this.updateVersus4pHud();
+      } else if (this.isVersus) {
         if (!this.domElements.wave) this.domElements.wave = document.getElementById('hud-wave-val');
         if (this.domElements.wave && this.lastRenderedWave !== this.wave) {
           this.domElements.wave.textContent = this.wave;
@@ -1713,6 +2405,7 @@ class Game {
       } else {
         if (!this.domElements.score) this.domElements.score = document.getElementById('hud-score-val');
         if (!this.domElements.wave) this.domElements.wave = document.getElementById('hud-wave-val');
+        if (!this.domElements.lives) this.domElements.lives = document.getElementById('hud-lives-val');
         if (!this.domElements.best) this.domElements.best = document.getElementById('hud-best-val');
 
         if (this.domElements.score && this.lastRenderedScore !== this.score) {
@@ -1722,6 +2415,11 @@ class Game {
         if (this.domElements.wave && this.lastRenderedWave !== this.wave) {
           this.domElements.wave.textContent = this.wave;
           this.lastRenderedWave = this.wave;
+        }
+        if (this.domElements.lives && this.lastRenderedLives !== this.lives) {
+          const remaining = Math.max(0, this.lives || 0);
+          this.domElements.lives.textContent = (remaining <= 5) ? ('❤️'.repeat(remaining) || '💀 0') : `❤️ x ${remaining}`;
+          this.lastRenderedLives = this.lives;
         }
         const best = Math.max(this.score, this.getBestScore(this.mode));
         if (this.domElements.best && this.lastRenderedBest !== best) {
