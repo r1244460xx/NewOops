@@ -80,17 +80,32 @@ class SoundEngine {
     try {
       this._prewarmed = true;
       const now = this.ctx.currentTime;
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(440, now);
-      osc.frequency.exponentialRampToValueAtTime(880, now + 0.01);
-      gain.gain.setValueAtTime(0.00001, now);
-      gain.gain.linearRampToValueAtTime(0, now + 0.01);
-      osc.connect(gain);
-      gain.connect(this.masterGain || this.ctx.destination);
-      osc.start(now);
-      osc.stop(now + 0.01);
+
+      // 1. Sawtooth sweep (Laser Blast & Laser Charge wavetable prewarm)
+      const oscSaw = this.ctx.createOscillator();
+      const gainSaw = this.ctx.createGain();
+      oscSaw.type = 'sawtooth';
+      oscSaw.frequency.setValueAtTime(1200, now);
+      oscSaw.frequency.exponentialRampToValueAtTime(160, now + 0.02);
+      gainSaw.gain.setValueAtTime(0.00001, now);
+      gainSaw.gain.linearRampToValueAtTime(0, now + 0.02);
+      oscSaw.connect(gainSaw);
+      gainSaw.connect(this.masterGain || this.ctx.destination);
+      oscSaw.start(now);
+      oscSaw.stop(now + 0.02);
+
+      // 2. Sine sweep (Whistle, Hop, and Near-miss wavetable prewarm)
+      const oscSine = this.ctx.createOscillator();
+      const gainSine = this.ctx.createGain();
+      oscSine.type = 'sine';
+      oscSine.frequency.setValueAtTime(300, now);
+      oscSine.frequency.exponentialRampToValueAtTime(800, now + 0.02);
+      gainSine.gain.setValueAtTime(0.00001, now);
+      gainSine.gain.linearRampToValueAtTime(0, now + 0.02);
+      oscSine.connect(gainSine);
+      gainSine.connect(this.masterGain || this.ctx.destination);
+      oscSine.start(now);
+      oscSine.stop(now + 0.02);
     } catch (e) {}
   }
 

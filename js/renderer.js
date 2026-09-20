@@ -106,6 +106,7 @@ class GameRenderer {
 
     // Pre-render static platform once into offscreen canvas
     this.preRenderPlatform();
+    this.initLaserCache();
   }
 
   preRenderPlatform() {
@@ -172,6 +173,86 @@ class GameRenderer {
     ctx.strokeRect(ox, oy, bw, bh);
 
     ctx.restore();
+  }
+
+  // Pre-calculate and cache laser linear and radial gradients (prevents per-frame allocation & shader re-eval)
+  initLaserCache() {
+    if (!this.ctx) return;
+    const ts = this.tileSize || 60;
+
+    // Perpendicular gradient for horizontal beam (height = ts)
+    this.laserGradH = this.ctx.createLinearGradient(0, 0, 0, ts);
+    this.laserGradH.addColorStop(0, 'rgba(255, 0, 60, 0)');
+    this.laserGradH.addColorStop(0.18, 'rgba(255, 0, 75, 0.45)');
+    this.laserGradH.addColorStop(0.5, 'rgba(255, 20, 100, 0.78)');
+    this.laserGradH.addColorStop(0.82, 'rgba(255, 0, 75, 0.45)');
+    this.laserGradH.addColorStop(1, 'rgba(255, 0, 60, 0)');
+
+    // Perpendicular gradient for vertical beam (width = ts)
+    this.laserGradV = this.ctx.createLinearGradient(0, 0, ts, 0);
+    this.laserGradV.addColorStop(0, 'rgba(255, 0, 60, 0)');
+    this.laserGradV.addColorStop(0.18, 'rgba(255, 0, 75, 0.45)');
+    this.laserGradV.addColorStop(0.5, 'rgba(255, 20, 100, 0.78)');
+    this.laserGradV.addColorStop(0.82, 'rgba(255, 0, 75, 0.45)');
+    this.laserGradV.addColorStop(1, 'rgba(255, 0, 60, 0)');
+
+    // Radial gradient for boundary flares
+    const flareR = Math.max(8, ts * 0.44);
+    this.laserFlareRadius = flareR;
+    this.laserFlareGrad = this.ctx.createRadialGradient(0, 0, 0, 0, 0, flareR);
+    this.laserFlareGrad.addColorStop(0, '#ffffff');
+    this.laserFlareGrad.addColorStop(0.35, '#ff0055');
+    this.laserFlareGrad.addColorStop(0.7, 'rgba(255, 0, 80, 0.4)');
+    this.laserFlareGrad.addColorStop(1, 'rgba(255, 0, 60, 0)');
+  }
+
+  // Prewarm GPU shaders, pipeline, and caches during main menu to eliminate in-game JIT stutter
+  prewarm() {
+    this.initLaserCache();
+    try {
+      const offscreen = document.createElement('canvas');
+      offscreen.width = 120;
+      offscreen.height = 120;
+      const ctx = offscreen.getContext('2d');
+      if (!ctx) return;
+
+      const savedCtx = this.ctx;
+      this.ctx = ctx;
+
+      // 1. Prewarm laser beam (horizontal & vertical)
+      this.drawLaserBeam({ direction: 'horizontal', index: 0, duration: 0.2, maxDuration: 0.28 });
+      this.drawLaserBeam({ direction: 'vertical', index: 0, duration: 0.2, maxDuration: 0.28 });
+
+      // 2. Prewarm laser warning lane & badge
+      this.drawLaserWarningLane({ type: 'laser', direction: 'horizontal', index: 0, timer: 0.2, maxTimer: 0.8 }, 0, 0, 100, 100, 20);
+      this.drawWarningBadge({ type: 'laser', direction: 'horizontal', side: 'left', index: 0, timer: 0.2, maxTimer: 0.8 }, 0, 0, 100, 100, 20);
+
+      // 3. Prewarm other obstacles (rock & cannonball)
+      this.drawRock({ x: 0, y: 0, rotation: 0.5 });
+      this.drawCannonball({ x: 0, y: 0 });
+
+      // 4. Prewarm particles (all types: circle, star, blood, spark)
+      const mockParticles = [
+        { type: 'circle', x: 20, y: 20, radius: 4, alpha: 0.8, color: '#ffffff' },
+        { type: 'star', x: 40, y: 40, radius: 6, alpha: 0.8, color: '#ffd700', rotation: 0.5 },
+        { type: 'blood', x: 60, y: 60, radius: 5, alpha: 0.8, color: '#c0392b', rotation: 0.2 },
+        { type: 'spark', x: 80, y: 80, radius: 4, alpha: 0.8, color: '#fffae6', rotation: 0.8 }
+      ];
+      const savedParticles = this.particles;
+      this.particles = mockParticles;
+      this.drawParticles();
+      this.particles = savedParticles;
+
+      // 5. Prewarm floating texts and font rasterizer
+      const savedFloating = this.floatingTexts;
+      this.floatingTexts = [{ text: 'OOPS', x: 50, y: 50, scale: 1, alpha: 0.9, color: '#ffd700' }];
+      this.drawFloatingTexts();
+      this.floatingTexts = savedFloating;
+
+      this.ctx = savedCtx;
+    } catch (e) {
+      // Ignore prewarm error if offscreen canvas isn't supported in test environment
+    }
   }
 
   // Convert grid coordinates (col, row: 0..5) to screen pixels
@@ -947,36 +1028,38 @@ class GameRenderer {
     const flicker = 0.88 + 0.12 * Math.sin(this.bgTime * 95);
     const plasmaAlpha = Math.min(1, lifeRatio * 1.4) * flicker;
 
-    // 1. Broad outer ionizing plasma aura (Gradient perpendicular to beam)
+    // 1. Broad outer ionizing plasma aura (Cached gradient perpendicular to beam)
     ctx.save();
     ctx.globalAlpha = plasmaAlpha;
+    ctx.translate(lx, ly);
     if (obs.direction === 'horizontal') {
-      const grad = ctx.createLinearGradient(lx, ly, lx, ly + lh);
-      grad.addColorStop(0, 'rgba(255, 0, 60, 0)');
-      grad.addColorStop(0.18, 'rgba(255, 0, 75, 0.45)');
-      grad.addColorStop(0.5, 'rgba(255, 20, 100, 0.78)');
-      grad.addColorStop(0.82, 'rgba(255, 0, 75, 0.45)');
-      grad.addColorStop(1, 'rgba(255, 0, 60, 0)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(lx, ly, lw, lh);
+      ctx.fillStyle = this.laserGradH || '#ff003c';
+      ctx.fillRect(0, 0, lw, lh);
     } else {
-      const grad = ctx.createLinearGradient(lx, ly, lx + lw, ly);
-      grad.addColorStop(0, 'rgba(255, 0, 60, 0)');
-      grad.addColorStop(0.18, 'rgba(255, 0, 75, 0.45)');
-      grad.addColorStop(0.5, 'rgba(255, 20, 100, 0.78)');
-      grad.addColorStop(0.82, 'rgba(255, 0, 75, 0.45)');
-      grad.addColorStop(1, 'rgba(255, 0, 60, 0)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(lx, ly, lw, lh);
+      ctx.fillStyle = this.laserGradV || '#ff003c';
+      ctx.fillRect(0, 0, lw, lh);
     }
     ctx.restore();
 
-    // 2. High-energy Neon Crimson Core Channel (~60% tile width)
+    // 2. High-energy Neon Crimson Glow (~82% tile width, 0 shadowBlur GPU accelerated)
     ctx.save();
-    ctx.globalAlpha = plasmaAlpha;
+    ctx.globalAlpha = plasmaAlpha * 0.35;
+    ctx.fillStyle = '#ff0055';
+    if (obs.direction === 'horizontal') {
+      const glowH = ts * 0.82;
+      const glowY = ly + (ts - glowH) * 0.5;
+      ctx.fillRect(lx, glowY, lw, glowH);
+    } else {
+      const glowW = ts * 0.82;
+      const glowX = lx + (ts - glowW) * 0.5;
+      ctx.fillRect(glowX, ly, glowW, lh);
+    }
+    ctx.restore();
+
+    // 3. Dense Crimson Channel (~58% tile width)
+    ctx.save();
+    ctx.globalAlpha = plasmaAlpha * 0.9;
     ctx.fillStyle = '#ff003c';
-    ctx.shadowColor = '#ff0055';
-    ctx.shadowBlur = 18;
     if (obs.direction === 'horizontal') {
       const coreH = ts * 0.58;
       const coreY = ly + (ts - coreH) * 0.5;
@@ -988,24 +1071,37 @@ class GameRenderer {
     }
     ctx.restore();
 
-    // 3. Blinding Super-Hot White Core (~26% tile width)
+    // 4. Hot Pink / Violet Ionized Inner Channel (~38% tile width)
     ctx.save();
-    ctx.globalAlpha = Math.min(1, plasmaAlpha * 1.25);
-    ctx.fillStyle = '#ffffff';
-    ctx.shadowColor = '#ffffff';
-    ctx.shadowBlur = 12;
+    ctx.globalAlpha = Math.min(1, plasmaAlpha * 1.1);
+    ctx.fillStyle = '#ff70a0';
     if (obs.direction === 'horizontal') {
-      const whiteH = ts * 0.26;
+      const hotH = ts * 0.38;
+      const hotY = ly + (ts - hotH) * 0.5;
+      ctx.fillRect(lx, hotY, lw, hotH);
+    } else {
+      const hotW = ts * 0.38;
+      const hotX = lx + (ts - hotW) * 0.5;
+      ctx.fillRect(hotX, ly, hotW, lh);
+    }
+    ctx.restore();
+
+    // 5. Blinding Super-Hot White Core (~22% tile width, crisp & intense)
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, plasmaAlpha * 1.35);
+    ctx.fillStyle = '#ffffff';
+    if (obs.direction === 'horizontal') {
+      const whiteH = ts * 0.22;
       const whiteY = ly + (ts - whiteH) * 0.5;
       ctx.fillRect(lx, whiteY, lw, whiteH);
     } else {
-      const whiteW = ts * 0.26;
+      const whiteW = ts * 0.22;
       const whiteX = lx + (ts - whiteW) * 0.5;
       ctx.fillRect(whiteX, ly, whiteW, lh);
     }
     ctx.restore();
 
-    // 4. Electric Arc / Crackling Lightning along beam edges
+    // 6. Electric Arc / Crackling Lightning along beam edges
     ctx.save();
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 1.8;
@@ -1047,7 +1143,7 @@ class GameRenderer {
     ctx.stroke();
     ctx.restore();
 
-    // 5. Border Impact Flares (Blazing energy at entrance and exit boundaries)
+    // 7. Border Impact Flares (Blazing energy at entrance and exit boundaries)
     ctx.save();
     ctx.globalAlpha = Math.min(1, plasmaAlpha * 1.1);
     const flareR = ts * 0.44;
@@ -1066,15 +1162,20 @@ class GameRenderer {
   }
 
   drawLaserFlare(ctx, x, y, radius) {
-    const flareGrad = ctx.createRadialGradient(x, y, 0, x, y, radius);
-    flareGrad.addColorStop(0, '#ffffff');
-    flareGrad.addColorStop(0.35, '#ff0055');
-    flareGrad.addColorStop(0.7, 'rgba(255, 0, 80, 0.4)');
-    flareGrad.addColorStop(1, 'rgba(255, 0, 60, 0)');
-    ctx.fillStyle = flareGrad;
+    if (!this.laserFlareGrad) {
+      this.initLaserCache();
+    }
+    ctx.save();
+    ctx.translate(x, y);
+    if (this.laserFlareRadius && radius !== this.laserFlareRadius) {
+      const s = radius / this.laserFlareRadius;
+      ctx.scale(s, s);
+    }
+    ctx.fillStyle = this.laserFlareGrad;
     ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.arc(0, 0, this.laserFlareRadius || radius, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
   }
 
   drawPlayer(player, obstacles) {
@@ -1384,6 +1485,14 @@ class GameRenderer {
       } else if (p.type === 'blood') {
         ctx.beginPath();
         ctx.ellipse(p.x, p.y, p.radius * 1.3, p.radius * 0.8, p.rotation || 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (p.type === 'spark') {
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rotation || 0);
+        ctx.fillRect(-p.radius, -p.radius * 0.4, p.radius * 2, p.radius * 0.8);
+      } else {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
         ctx.fill();
       }
       ctx.restore();

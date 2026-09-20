@@ -11,6 +11,9 @@ class Game {
     this.sound = window.soundEngine;
     this.obstacleManager = new ObstacleManager(this.renderer, this.sound, this);
 
+    // Prewarm GPU rendering pipelines in main menu to eliminate in-game JIT stutter
+    this.renderer.prewarm();
+
     this.state = 'MENU';
     this.mode = 'rock';
     this.bloodyMode = false;
