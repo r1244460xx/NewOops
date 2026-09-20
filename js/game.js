@@ -530,11 +530,15 @@ class Game {
         isAi: p.isAi,
         col: p.col,
         row: p.row,
+        prevCol: p.prevCol !== undefined ? p.prevCol : p.col,
+        prevRow: p.prevRow !== undefined ? p.prevRow : p.row,
         animX: p.animX,
         animY: p.animY,
         hopZ: p.hopZ,
         tiltAngle: p.tiltAngle,
         isHopping: p.isHopping,
+        hopProgress: p.hopProgress || 0,
+        hopDuration: p.hopDuration || 0.16,
         isScared: p.isScared,
         isDead: p.isDead,
         momentumSteps: p.momentumSteps || 0,
@@ -613,11 +617,94 @@ class Game {
     }
 
     if (msg.players && Array.isArray(msg.players)) {
-      this.players = msg.players;
       const net = window.networkManager;
       const myIdx = (net && typeof net.playerIndex === 'number')
         ? net.playerIndex
         : (this.isVersus4p ? 1 : 1);
+
+      if (!this.players || this.players.length !== msg.players.length) {
+        this.players = msg.players.map(p => ({ ...p }));
+      } else {
+        for (let i = 0; i < msg.players.length; i++) {
+          const remoteP = msg.players[i];
+          const localP = this.players[i];
+          if (!localP) continue;
+
+          localP.id = remoteP.id;
+          localP.playerIndex = remoteP.playerIndex;
+          localP.color = remoteP.color;
+          localP.isAi = remoteP.isAi;
+          localP.isScared = remoteP.isScared;
+          localP.isDead = remoteP.isDead;
+          localP.stunTimer = remoteP.stunTimer || 0;
+          localP.recoilX = remoteP.recoilX || 0;
+          localP.recoilY = remoteP.recoilY || 0;
+          localP.momentumSteps = remoteP.momentumSteps || 0;
+          localP.momentumTimer = remoteP.momentumTimer || 0;
+
+          if (remoteP.isDead) {
+            localP.col = remoteP.col;
+            localP.row = remoteP.row;
+            localP.animX = remoteP.animX;
+            localP.animY = remoteP.animY;
+            localP.hopZ = 0;
+            localP.isHopping = false;
+            continue;
+          }
+
+          const isLocalHuman = (i === myIdx);
+
+          if (isLocalHuman) {
+            // Reconcile client predicted player
+            if (remoteP.col === localP.col && remoteP.row === localP.row) {
+              if (!localP.isHopping && remoteP.isHopping && remoteP.hopProgress < 0.6) {
+                localP.prevCol = remoteP.prevCol !== undefined ? remoteP.prevCol : localP.col;
+                localP.prevRow = remoteP.prevRow !== undefined ? remoteP.prevRow : localP.row;
+                localP.isHopping = true;
+                localP.hopProgress = remoteP.hopProgress;
+                localP.hopDuration = remoteP.hopDuration || 0.16;
+              }
+            } else {
+              // Position mismatch (e.g. push or clash on host): reconcile gracefully
+              if (!localP.isHopping || localP.hopProgress >= 0.6) {
+                localP.prevCol = remoteP.prevCol !== undefined ? remoteP.prevCol : remoteP.col;
+                localP.prevRow = remoteP.prevRow !== undefined ? remoteP.prevRow : remoteP.row;
+                localP.col = remoteP.col;
+                localP.row = remoteP.row;
+                localP.isHopping = remoteP.isHopping;
+                localP.hopProgress = remoteP.hopProgress || 0;
+                localP.hopDuration = remoteP.hopDuration || 0.16;
+                localP.tiltAngle = remoteP.tiltAngle || 0;
+              }
+            }
+          } else {
+            // Reconcile remote opponent players
+            if (remoteP.col !== localP.col || remoteP.row !== localP.row) {
+              localP.prevCol = remoteP.prevCol !== undefined ? remoteP.prevCol : localP.col;
+              localP.prevRow = remoteP.prevRow !== undefined ? remoteP.prevRow : localP.row;
+              localP.col = remoteP.col;
+              localP.row = remoteP.row;
+              localP.isHopping = remoteP.isHopping;
+              localP.hopProgress = remoteP.hopProgress || 0;
+              localP.hopDuration = remoteP.hopDuration || 0.16;
+              localP.tiltAngle = remoteP.tiltAngle || 0;
+            } else if (remoteP.isHopping && !localP.isHopping) {
+              localP.prevCol = remoteP.prevCol !== undefined ? remoteP.prevCol : localP.col;
+              localP.prevRow = remoteP.prevRow !== undefined ? remoteP.prevRow : localP.row;
+              localP.isHopping = true;
+              localP.hopProgress = remoteP.hopProgress || 0;
+              localP.hopDuration = remoteP.hopDuration || 0.16;
+            } else if (!remoteP.isHopping && localP.isHopping && localP.hopProgress >= 0.85) {
+              localP.isHopping = false;
+              localP.animX = localP.col;
+              localP.animY = localP.row;
+              localP.hopZ = 0;
+              localP.tiltAngle = 0;
+            }
+          }
+        }
+      }
+
       this.player = this.players[myIdx] || this.players[1] || this.players[0];
       for (let i = 0; i < this.players.length; i++) {
         const pl = this.players[i];
@@ -1202,6 +1289,53 @@ class Game {
     }
   }
 
+  // Client-Side Prediction for instant responsive controls in LAN/Online mode
+  predictClientMove(dx, dy) {
+    if (this.state !== 'PLAYING') return;
+    const net = window.networkManager;
+    const myIdx = (net && typeof net.playerIndex === 'number') ? net.playerIndex : (this.isVersus4p ? 1 : 1);
+    const p = this.players[myIdx];
+    if (!p || p.isDead || (p.stunTimer && p.stunTimer > 0)) return;
+
+    // Buffer move if already hopping
+    if (p.isHopping && p.hopProgress < 0.75) {
+      p.bufferedMove = { dx, dy };
+      return;
+    }
+
+    const newCol = p.col + dx;
+    const newRow = p.row + dy;
+    if (newCol < 0 || newCol > 5 || newRow < 0 || newRow > 5) return;
+
+    // Check collision with opponents: do not predict through opponents to avoid misprediction
+    const hasOpponent = this.players.some((other, idx) => idx !== myIdx && !other.isDead && other.col === newCol && other.row === newRow);
+    if (hasOpponent) {
+      return;
+    }
+
+    const cfg = window.configManager;
+    const momentumWindow = cfg ? (cfg.get('momentumWindow') || 0.32) : 0.32;
+    const isSameStraight = Boolean(p.momentumDir && p.momentumDir.dx === dx && p.momentumDir.dy === dy && p.momentumTimer > 0);
+    if (isSameStraight) {
+      p.momentumSteps = (p.momentumSteps || 0) + 1;
+    } else {
+      p.momentumSteps = 1;
+      p.momentumDir = { dx, dy };
+    }
+    p.momentumTimer = momentumWindow;
+
+    p.prevCol = p.col;
+    p.prevRow = p.row;
+    p.col = newCol;
+    p.row = newRow;
+    p.isHopping = true;
+    p.hopProgress = 0;
+    p.hopDuration = (cfg ? cfg.get('playerHopDuration') : 0.16) || 0.16;
+    p.tiltAngle = dx * 0.25 + dy * 0.12;
+
+    this.sound.playHop();
+  }
+
   // Handle Player Movement (Up, Down, Left, Right)
   // Supports both movePlayer(dx, dy) and movePlayer(playerIdx, dx, dy)
   movePlayer(arg1, arg2, arg3) {
@@ -1221,11 +1355,12 @@ class Game {
 
     if (this.state !== 'PLAYING') return;
 
-    // Client Mode: immediately forward input over WebSocket to Host
+    // Client Mode: immediately forward input over WebSocket to Host, and predict local hop
     if (this.netRole === 'client') {
       if (window.networkManager) {
         window.networkManager.sendInput(dx, dy);
       }
+      this.predictClientMove(dx, dy);
       return;
     }
 
@@ -2047,7 +2182,7 @@ class Game {
 
     // Client Mode: game simulation is driven by Host via applyRemoteState()
     if (this.netRole === 'client') {
-      // Locally advance warnings and active obstacle timers between 30Hz network snapshots for smooth 120fps display
+      // 1. Locally advance warnings and active obstacle timers between 30Hz network snapshots for smooth 120fps display
       for (let i = this.obstacleManager.warnings.length - 1; i >= 0; i--) {
         const w = this.obstacleManager.warnings[i];
         w.timer -= dt;
@@ -2059,8 +2194,91 @@ class Game {
           if (obs.duration <= 0) {
             this.obstacleManager.obstacles.splice(i, 1);
           }
+        } else {
+          // Smoothly advance rock and cannonball positions between snapshots
+          obs.x += (obs.vx || 0) * dt;
+          obs.y += (obs.vy || 0) * dt;
+          if (obs.type === 'rock') {
+            obs.rotation = (obs.rotation || 0) + ((obs.vx !== 0 ? Math.sign(obs.vx) : Math.sign(obs.vy)) || 1) * 3.5 * dt;
+          }
         }
       }
+
+      // 2. Locally advance player hop animations at 60/120/144 FPS
+      const net = window.networkManager;
+      const myIdx = (net && typeof net.playerIndex === 'number') ? net.playerIndex : (this.isVersus4p ? 1 : 1);
+
+      if (this.players && this.players.length > 0) {
+        for (let i = 0; i < this.players.length; i++) {
+          const pl = this.players[i];
+          if (!pl || pl.isDead) continue;
+
+          // Recoil spring-back dampening
+          if (pl.recoilX) {
+            pl.recoilX *= Math.max(0, 1 - dt * 14);
+            if (Math.abs(pl.recoilX) < 0.005) pl.recoilX = 0;
+          }
+          if (pl.recoilY) {
+            pl.recoilY *= Math.max(0, 1 - dt * 14);
+            if (Math.abs(pl.recoilY) < 0.005) pl.recoilY = 0;
+          }
+
+          // Stun timer decay
+          if (pl.stunTimer > 0) {
+            pl.stunTimer -= dt;
+            if (pl.stunTimer <= 0) pl.stunTimer = 0;
+          }
+
+          // Momentum timer decay
+          if (pl.momentumTimer > 0) {
+            pl.momentumTimer -= dt;
+            if (pl.momentumTimer <= 0) {
+              pl.momentumSteps = 0;
+            }
+          }
+
+          // Afterimages during active momentum hop
+          if (pl.momentumSteps >= 2 && !pl.isDead && pl.isHopping) {
+            pl.afterimageTimer = (pl.afterimageTimer || 0) + dt;
+            if (pl.afterimageTimer >= 0.035) {
+              pl.afterimageTimer = 0;
+              this.renderer.spawnAfterimage(pl);
+            }
+          }
+
+          if (pl.isHopping) {
+            pl.hopProgress += dt / (pl.hopDuration || 0.16);
+            if (pl.hopProgress >= 1) {
+              pl.hopProgress = 1;
+              pl.isHopping = false;
+              pl.animX = pl.col;
+              pl.animY = pl.row;
+              pl.hopZ = 0;
+              pl.tiltAngle = 0;
+
+              // Process client buffered move upon landing
+              if (i === myIdx && pl.bufferedMove) {
+                const m = pl.bufferedMove;
+                pl.bufferedMove = null;
+                this.movePlayer(m.dx, m.dy);
+              }
+            } else {
+              const t = pl.hopProgress;
+              const pCol = pl.prevCol !== undefined ? pl.prevCol : pl.col;
+              const pRow = pl.prevRow !== undefined ? pl.prevRow : pl.row;
+              pl.animX = pCol + (pl.col - pCol) * t;
+              pl.animY = pRow + (pl.row - pRow) * t;
+              pl.hopZ = Math.sin(t * Math.PI) * 16;
+            }
+          } else {
+            // Smoothly interpolate towards target col/row if slight mismatch
+            pl.animX += (pl.col - pl.animX) * Math.min(1, dt * 25);
+            pl.animY += (pl.row - pl.animY) * Math.min(1, dt * 25);
+            pl.hopZ = 0;
+          }
+        }
+      }
+
       return;
     }
 
