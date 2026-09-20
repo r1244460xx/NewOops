@@ -472,7 +472,8 @@ class GameServerHandler(http.server.SimpleHTTPRequestHandler):
 
 def main():
     # Use ThreadingTCPServer so persistent WebSocket connections don't block HTTP file requests
-    socketserver.ThreadingTCPServer.allow_reuse_address = True
+    # Note: On Windows, SO_REUSEADDR allows multiple sockets to bind the same port concurrently, causing collision.
+    socketserver.ThreadingTCPServer.allow_reuse_address = (sys.platform != "win32")
     local_ip = get_local_ip()
     try:
         with socketserver.ThreadingTCPServer(("", PORT), GameServerHandler) as httpd:
