@@ -436,13 +436,30 @@ class ConfigManager {
     // Post to server to overwrite config.json on disk
     if (typeof fetch === 'function') {
       try {
+        const adminPwd = this.getAdminPassword();
         const res = await fetch('/api/config', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'X-Admin-Password': adminPwd
           },
           body: JSON.stringify(cleanData, null, 2)
         });
+
+        if (res.status === 403) {
+          const errData = await res.json().catch(() => ({}));
+          this.notifyStatus({
+            status: 'unauthorized',
+            method: 'none',
+            message: '🔒 需要管理員密碼才能寫入伺服器硬碟！'
+          });
+          return {
+            success: false,
+            unauthorized: true,
+            method: 'unauthorized',
+            message: errData.message || '管理員密碼錯誤或未提供！'
+          };
+        }
 
         if (res.ok) {
           const result = await res.json();
@@ -469,6 +486,40 @@ class ConfigManager {
       method: 'local',
       message: '已儲存至瀏覽器本地'
     };
+  }
+
+  getAdminPassword() {
+    try {
+      return (typeof localStorage !== 'undefined') ? (localStorage.getItem('mroops_admin_password') || '') : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  setAdminPassword(pwd) {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        if (pwd && pwd.trim()) {
+          localStorage.setItem('mroops_admin_password', pwd.trim());
+        } else {
+          localStorage.removeItem('mroops_admin_password');
+        }
+      }
+    } catch (e) {}
+  }
+
+  async checkAuthStatus() {
+    if (typeof fetch !== 'function') return { protected: false, authenticated: true };
+    try {
+      const pwd = this.getAdminPassword();
+      const res = await fetch('/api/auth-status', {
+        headers: { 'X-Admin-Password': pwd }
+      });
+      if (res.ok) {
+        return await res.json();
+      }
+    } catch (e) {}
+    return { protected: false, authenticated: true };
   }
 
   resetDefaults() {

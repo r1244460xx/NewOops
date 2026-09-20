@@ -25,11 +25,25 @@ if sys.platform == "win32":
         pass
 
 PORT = 8081
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "").strip()
+
+# CLI Argument parsing: python server.py [port] [--password <pwd>]
 if len(sys.argv) > 1:
-    try:
-        PORT = int(sys.argv[1])
-    except ValueError:
-        pass
+    args = sys.argv[1:]
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg in ("--password", "-p") and i + 1 < len(args):
+            ADMIN_PASSWORD = args[i + 1].strip()
+            i += 2
+        elif not arg.startswith("-"):
+            try:
+                PORT = int(arg)
+            except ValueError:
+                pass
+            i += 1
+        else:
+            i += 1
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 MAGIC_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
@@ -371,11 +385,45 @@ class GameServerHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(resp)
             return
 
-        # 3. Default static file handler
+        # 4. Admin Auth Status Endpoint
+        if self.path == '/api/auth-status':
+            req_pwd = self.headers.get('X-Admin-Password', '').strip()
+            auth_data = {
+                "protected": bool(ADMIN_PASSWORD),
+                "authenticated": (not ADMIN_PASSWORD) or (req_pwd == ADMIN_PASSWORD)
+            }
+            resp = json.dumps(auth_data).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
+            self.send_header('Content-Length', str(len(resp)))
+            self.end_headers()
+            self.wfile.write(resp)
+            return
+
+        # 5. Default static file handler
         super().do_GET()
 
     def do_POST(self):
         if self.path == '/api/config' or self.path == '/save_config':
+            # Check Admin Password if configured
+            if ADMIN_PASSWORD:
+                client_pwd = self.headers.get('X-Admin-Password', '').strip()
+                if client_pwd != ADMIN_PASSWORD:
+                    print(f"[Mr. Oops Server] ⛔ Unauthorized save attempt! Incorrect or missing admin password.")
+                    err_resp = json.dumps({
+                        "status": "unauthorized",
+                        "message": "管理員密碼錯誤或未提供！無法儲存設定至硬碟。"
+                    }, ensure_ascii=False).encode('utf-8')
+                    self.send_response(403)
+                    self.send_header('Content-Type', 'application/json; charset=utf-8')
+                    self.send_header('Access-Control-Allow-Origin', '*')
+                    self.send_header('Content-Length', str(len(err_resp)))
+                    self.end_headers()
+                    self.wfile.write(err_resp)
+                    return
+
             try:
                 content_length = int(self.headers.get('Content-Length', 0))
                 post_data = self.rfile.read(content_length)
@@ -411,7 +459,7 @@ class GameServerHandler(http.server.SimpleHTTPRequestHandler):
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, X-Admin-Password')
         self.end_headers()
 
     def end_headers(self):
