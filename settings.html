@@ -551,7 +551,7 @@
       const btnCancelPassword = document.getElementById('btn-cancel-password');
       const btnClearPassword = document.getElementById('btn-clear-password');
 
-      async function updateAuthPill() {
+      async function updateAuthPill(promptIfLocked = false) {
         const authStatus = await window.configManager.checkAuthStatus();
         if (authStatus.protected) {
           btnAuthManage.style.display = 'inline-flex';
@@ -565,6 +565,9 @@
             authPillIcon.textContent = '🔐';
             authPillText.textContent = '尚未驗證';
             btnAuthManage.title = '伺服器已開啟密碼保護，點擊以輸入密碼';
+            if (promptIfLocked) {
+              openPasswordModal('🔒 伺服器已啟用管理員密碼保護，請輸入密碼以授權儲存');
+            }
           }
         } else {
           btnAuthManage.style.display = 'none';
@@ -647,8 +650,8 @@
         }
       });
 
-      // Update auth status pill on page load
-      updateAuthPill();
+      // Update auth status pill on page load (prompt modal if locked)
+      updateAuthPill(true);
 
       // Reset button
       btnReset.addEventListener('click', () => {
