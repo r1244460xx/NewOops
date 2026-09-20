@@ -42,10 +42,32 @@
 
 本專案支援將「**遊戲主畫面**」與「**參數設定後台**」在 Chrome 中開兩個分頁並排顯示，支援即時雙向連動，並可直接將參數寫入硬碟中的 `config.json`：
 
+### 1. 啟動伺服器
+
+#### 方式 A：免密碼啟動（本地開發與測試）
 ```bash
-# 啟動專用本地伺服器（支援寫入 config.json 到硬碟）
 python3 server.py 8081
 ```
+
+#### 方式 B：帶入管理密碼啟動（推薦公開對戰或 VM 部署）
+為防止他人或對手未經授權任意進入後台竄改遊戲數值與伺服器硬碟上的 `config.json`，啟動時請帶入密碼保護：
+```bash
+# 推薦做法 1：使用命令列參數 (--password 或 -p)
+python3 server.py 8081 --password 您的自訂密碼
+
+# 推薦做法 2：使用環境變數 (Linux VM / Systemd 守護行程推薦)
+ADMIN_PASSWORD="您的自訂密碼" python3 server.py 8081
+```
+*(Windows PowerShell 請使用 `$env:ADMIN_PASSWORD="您的自訂密碼"; python server.py 8081`)*
+
+> **🔐 密碼保護機制說明**：
+> - **零額外密碼檔案**：密碼透過環境變數或啟動參數注入，**完全不需要建立 `.env` 或 secret 檔案**，徹底杜絕密碼被誤提交至 Git Repo。
+> - **瀏覽器自動記憶 (`localStorage`)**：管理者在後台 (`settings.html`) 首次輸入正確密碼後，會自動加密暫存於當前瀏覽器的 `localStorage` 中。往後拉動滑桿或微調數值都會自動帶入驗證，**免去重複輸入密碼的繁瑣步驟**。
+> - **未設密碼向下相容**：若啟動時未提供密碼，後台保持免密碼直接儲存，本地開發依然絲滑無障礙。
+
+---
+
+### 2. 開啟瀏覽器體驗
 
 接著在 Chrome 開啟以下兩個分頁並排：
 1. **遊戲主畫面**：[http://localhost:8081/index.html](http://localhost:8081/index.html)

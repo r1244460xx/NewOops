@@ -482,6 +482,10 @@ def main():
             print(f"🌐 區網連線網址:   http://{local_ip}:{PORT}/index.html")
             print(f"⚙️ 參數設定頁面:   http://localhost:{PORT}/settings.html")
             print(f"📡 雙人連線端點:   ws://{local_ip}:{PORT}/ws")
+            if ADMIN_PASSWORD:
+                print(f"🔐 後台修改授權:   已啟用密碼保護 (X-Admin-Password)")
+            else:
+                print(f"🔓 後台修改授權:   未啟用 (可使用 --password <密碼> 啟用保護)")
             print(f"=====================================================")
             print("提示：若另一台電腦要在同區網連線對戰，請在該電腦瀏覽器輸入：")
             print(f"      👉 http://{local_ip}:{PORT}/index.html")
