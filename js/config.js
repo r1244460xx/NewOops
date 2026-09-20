@@ -5,15 +5,15 @@
  */
 
 const DEFAULT_GAME_CONFIG = {
-  warningMultiplier: 0.75,
+  warningMultiplier: 0.8,
   rockWarningBase: 1.15,
   cannonWarningBase: 0.95,
-  laserWarningBase: 1.25,
-  rockSpeed: 1.7,
-  cannonSpeed: 6.3,
-  laserDuration: 0.28,
+  laserWarningBase: 1.5,
+  rockSpeed: 4.0,
+  cannonSpeed: 7.5,
+  laserDuration: 0.15,
   maxLines: 5,
-  hopDuration: 0.11,
+  hopDuration: 0.08,
   singlePlayerLives: 3,
   preWarningLeadTime: 0.25,
   wavesPerLevel: 1,
@@ -37,7 +37,7 @@ const CONFIG_SCHEMA = [
     max: 2.0,
     step: 0.05,
     unit: '倍',
-    placeholder: '0.75',
+    placeholder: '0.8',
     desc: '全局預警時間縮放倍率（原版基準 × 此倍率）'
   },
   {
@@ -70,7 +70,7 @@ const CONFIG_SCHEMA = [
     max: 2.5,
     step: 0.05,
     unit: '秒',
-    placeholder: '1.25',
+    placeholder: '1.5',
     desc: '雷射蓄力紅線閃爍的基準秒數'
   },
   {
@@ -94,7 +94,7 @@ const CONFIG_SCHEMA = [
     max: 6.0,
     step: 0.1,
     unit: '格/秒',
-    placeholder: '1.7',
+    placeholder: '4.0',
     desc: '巨石在棋盤上的基礎滾動速度'
   },
   {
@@ -105,7 +105,7 @@ const CONFIG_SCHEMA = [
     max: 15.0,
     step: 0.2,
     unit: '格/秒',
-    placeholder: '6.3',
+    placeholder: '7.5',
     desc: '鐵球砲彈疾馳而過的基礎速度'
   },
   {
@@ -116,7 +116,7 @@ const CONFIG_SCHEMA = [
     max: 1.0,
     step: 0.02,
     unit: '秒',
-    placeholder: '0.28',
+    placeholder: '0.15',
     desc: '雷射光束爆發在棋盤上的停留判定時間'
   },
   {
@@ -140,7 +140,7 @@ const CONFIG_SCHEMA = [
     max: 0.25,
     step: 0.01,
     unit: '秒',
-    placeholder: '0.11',
+    placeholder: '0.08',
     desc: 'Mr. Oops 從一格跳到鄰格的時間（越小越敏捷）'
   },
   {
