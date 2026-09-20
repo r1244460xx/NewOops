@@ -61,8 +61,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnOptLocal = document.getElementById('btn-opt-local');
   const btnStartHost = document.getElementById('btn-start-host');
   const btnStartJoin = document.getElementById('btn-start-join');
-  const btnCopyUrl = document.getElementById('btn-copy-url');
-  const hostShareUrl = document.getElementById('host-share-url');
   const hostRoomCode = document.getElementById('host-room-code');
   const joinRoomCode = document.getElementById('join-room-code');
 
@@ -93,34 +91,34 @@ document.addEventListener('DOMContentLoaded', () => {
       if (descLocal) descLocal.textContent = '兩人使用同一台鍵盤（P1: WASD / P2: 方向鍵）即刻開打！';
       if (badgeHost) badgeHost.textContent = '線上 / 區網 • 房主 (P1 藍)';
       if (titleHost) titleHost.textContent = '建立 2 人房間 (開房並開始)';
-      if (descHost) descHost.textContent = '開房後分享網址或房號，等待 1 位好友 (P2 紅) 加入即可開始對戰！';
+      if (descHost) descHost.textContent = '設定房號並開房，等待 1 位好友 (P2 紅) 輸入相同房號加入即可開打！';
       if (badgeJoin) badgeJoin.textContent = '線上 / 區網 • 訪客 (P2 紅)';
       if (titleJoin) titleJoin.textContent = '加入 2 人房間 (Join Game)';
-      if (descJoin) descJoin.textContent = '輸入房主的 IP 與房號，直接透過 WebRTC 超低延遲直連！';
+      if (descJoin) descJoin.textContent = '輸入好友的房號，直接超低延遲直連加入！';
     } else if (count === 3) {
       if (modalTitle) modalTitle.textContent = '3 人大亂鬥 PK 連線大廳';
-      if (modalSubtitle) modalSubtitle.textContent = '正中心開局！選擇本機 3 人混戰，或建立 / 加入 WebRTC 連線房間 (線上需 3 人到齊才開始)';
+      if (modalSubtitle) modalSubtitle.textContent = '正中心開局！選擇本機 3 人混戰，或建立 / 加入連線房間 (線上需 3 人到齊才開始)';
       if (badgeLocal) badgeLocal.textContent = '本機單機';
       if (titleLocal) titleLocal.textContent = '本機 3 人同機對戰 (支援 AI 補位)';
       if (descLocal) descLocal.textContent = 'P1 (WASD)、P2 (方向鍵)、P3 (IJKL/數字鍵)。無人操作時由 AI 電腦人補位！';
       if (badgeHost) badgeHost.textContent = '線上 / 區網 • 房主 (P1 藍)';
       if (titleHost) titleHost.textContent = '建立 3 人房間 (開房並開始)';
-      if (descHost) descHost.textContent = '開房後分享網址或房號，等待 2 位好友 (P2~P3) 全部加入即可開始對戰！';
+      if (descHost) descHost.textContent = '設定房號並開房，等待 2 位好友 (P2~P3) 全部加入即可開打！';
       if (badgeJoin) badgeJoin.textContent = '線上 / 區網 • 加入者 (P2~P3)';
       if (titleJoin) titleJoin.textContent = '加入 3 人房間 (自動分發玩家位)';
-      if (descJoin) descJoin.textContent = '輸入房號與房主 IP 直連加入，系統自動分配 P2/P3 位，使用自己鍵盤即可操控！';
+      if (descJoin) descJoin.textContent = '輸入相同房號直連加入，系統自動分配 P2/P3 位，使用自己鍵盤即可操控！';
     } else {
       if (modalTitle) modalTitle.textContent = '4 人大亂鬥 PK 連線大廳';
-      if (modalSubtitle) modalSubtitle.textContent = '正中心開局！選擇本機 4 人混戰，或建立 / 加入 WebRTC 連線房間 (線上需 4 人到齊才開始)';
+      if (modalSubtitle) modalSubtitle.textContent = '正中心開局！選擇本機 4 人混戰，或建立 / 加入連線房間 (線上需 4 人到齊才開始)';
       if (badgeLocal) badgeLocal.textContent = '本機單機';
       if (titleLocal) titleLocal.textContent = '本機 4 人同機對戰 (支援 AI 補位)';
       if (descLocal) descLocal.textContent = 'P1 (WASD)、P2 (方向鍵)、P3 (IJKL/數字鍵)、P4 (TFGH)。無人操作時由 AI 電腦人補位！';
       if (badgeHost) badgeHost.textContent = '線上 / 區網 • 房主 (P1 藍)';
       if (titleHost) titleHost.textContent = '建立 4 人房間 (開房並開始)';
-      if (descHost) descHost.textContent = '開房後分享網址或房號，等待 3 位好友 (P2~P4) 全部加入即可開始對戰！';
+      if (descHost) descHost.textContent = '設定房號並開房，等待 3 位好友 (P2~P4) 全部加入即可開打！';
       if (badgeJoin) badgeJoin.textContent = '線上 / 區網 • 加入者 (P2~P4)';
       if (titleJoin) titleJoin.textContent = '加入 4 人房間 (自動分發玩家位)';
-      if (descJoin) descJoin.textContent = '輸入房號與房主 IP 直連加入，系統自動分配 P2/P3/P4 位，使用自己鍵盤即可操控！';
+      if (descJoin) descJoin.textContent = '輸入相同房號直連加入，系統自動分配 P2/P3/P4 位，使用自己鍵盤即可操控！';
     }
   }
 
@@ -140,13 +138,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (versusModal) {
       versusModal.classList.remove('hidden');
-      if (window.networkManager) {
-        window.networkManager.fetchLanIp().then(data => {
-          if (hostShareUrl) {
-            hostShareUrl.value = data.url ? `${data.url}/index.html` : `http://${data.ip}:${data.port}/index.html`;
-          }
-        });
-      }
     }
   }
 
@@ -159,20 +150,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if (btnCloseVersusModal) {
     btnCloseVersusModal.addEventListener('click', () => {
       versusModal.classList.add('hidden');
-    });
-  }
-
-  if (btnCopyUrl) {
-    btnCopyUrl.addEventListener('click', () => {
-      if (hostShareUrl && hostShareUrl.value) {
-        navigator.clipboard.writeText(hostShareUrl.value).then(() => {
-          showToast('📋 網址已複製到剪貼簿！可直接傳給對手');
-        }).catch(() => {
-          hostShareUrl.select();
-          document.execCommand('copy');
-          showToast('📋 網址已複製！');
-        });
-      }
     });
   }
 
