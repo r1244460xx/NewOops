@@ -5,6 +5,15 @@
  */
 
 document.addEventListener('DOMContentLoaded', () => {
+  // Prewarm sound engine on first user interaction in main menu
+  const prewarmUserAudio = () => {
+    if (window.soundEngine) {
+      window.soundEngine.resume();
+    }
+  };
+  window.addEventListener('pointerdown', prewarmUserAudio, { once: true, passive: true });
+  window.addEventListener('keydown', prewarmUserAudio, { once: true, passive: true });
+
   const canvas = document.getElementById('game-canvas');
   const game = new Game(canvas);
   window.game = game;
@@ -512,7 +521,15 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) {
+    const isControlKey = [
+      'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' ',
+      'w', 'W', 's', 'S', 'a', 'A', 'd', 'D'
+    ].includes(e.key) || [
+      'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space',
+      'KeyW', 'KeyS', 'KeyA', 'KeyD'
+    ].includes(e.code);
+
+    if (isControlKey) {
       e.preventDefault();
     }
 
@@ -526,29 +543,29 @@ document.addEventListener('DOMContentLoaded', () => {
       if (game.isVersus4p) {
         if (game.netRole === 'client') {
           // Client (P2, P3, or P4) on own device: can use WASD or Arrow keys!
-          if (['ArrowUp', 'w', 'W'].includes(e.key)) game.movePlayer(0, -1);
-          else if (['ArrowDown', 's', 'S'].includes(e.key)) game.movePlayer(0, 1);
-          else if (['ArrowLeft', 'a', 'A'].includes(e.key)) game.movePlayer(-1, 0);
-          else if (['ArrowRight', 'd', 'D'].includes(e.key)) game.movePlayer(1, 0);
-          else if (['Escape', 'p', 'P'].includes(e.key)) {
+          if (['ArrowUp', 'w', 'W'].includes(e.key) || e.code === 'KeyW') game.movePlayer(0, -1);
+          else if (['ArrowDown', 's', 'S'].includes(e.key) || e.code === 'KeyS') game.movePlayer(0, 1);
+          else if (['ArrowLeft', 'a', 'A'].includes(e.key) || e.code === 'KeyA') game.movePlayer(-1, 0);
+          else if (['ArrowRight', 'd', 'D'].includes(e.key) || e.code === 'KeyD') game.movePlayer(1, 0);
+          else if (['Escape', 'p', 'P'].includes(e.key) || e.code === 'KeyP') {
             if (btnPauseToggle) btnPauseToggle.click();
           }
         } else if (game.netRole === 'host') {
           // Host (P1) on own device: can use WASD or Arrow keys!
-          if (['ArrowUp', 'w', 'W'].includes(e.key)) game.movePlayer(0, 0, -1);
-          else if (['ArrowDown', 's', 'S'].includes(e.key)) game.movePlayer(0, 0, 1);
-          else if (['ArrowLeft', 'a', 'A'].includes(e.key)) game.movePlayer(0, -1, 0);
-          else if (['ArrowRight', 'd', 'D'].includes(e.key)) game.movePlayer(0, 1, 0);
-          else if (['Escape', 'p', 'P'].includes(e.key)) {
+          if (['ArrowUp', 'w', 'W'].includes(e.key) || e.code === 'KeyW') game.movePlayer(0, 0, -1);
+          else if (['ArrowDown', 's', 'S'].includes(e.key) || e.code === 'KeyS') game.movePlayer(0, 0, 1);
+          else if (['ArrowLeft', 'a', 'A'].includes(e.key) || e.code === 'KeyA') game.movePlayer(0, -1, 0);
+          else if (['ArrowRight', 'd', 'D'].includes(e.key) || e.code === 'KeyD') game.movePlayer(0, 1, 0);
+          else if (['Escape', 'p', 'P'].includes(e.key) || e.code === 'KeyP') {
             if (btnPauseToggle) btnPauseToggle.click();
           }
         } else {
           // Local Couch 4P (Shared Keyboard):
           // P1: WASD
-          if (e.key === 'w' || e.key === 'W') game.movePlayer(0, 0, -1);
-          else if (e.key === 's' || e.key === 'S') game.movePlayer(0, 0, 1);
-          else if (e.key === 'a' || e.key === 'A') game.movePlayer(0, -1, 0);
-          else if (e.key === 'd' || e.key === 'D') game.movePlayer(0, 1, 0);
+          if (e.key === 'w' || e.key === 'W' || e.code === 'KeyW') game.movePlayer(0, 0, -1);
+          else if (e.key === 's' || e.key === 'S' || e.code === 'KeyS') game.movePlayer(0, 0, 1);
+          else if (e.key === 'a' || e.key === 'A' || e.code === 'KeyA') game.movePlayer(0, -1, 0);
+          else if (e.key === 'd' || e.key === 'D' || e.code === 'KeyD') game.movePlayer(0, 1, 0);
 
           // P2: Arrows
           else if (e.key === 'ArrowUp') game.movePlayer(1, 0, -1);
@@ -557,82 +574,72 @@ document.addEventListener('DOMContentLoaded', () => {
           else if (e.key === 'ArrowRight') game.movePlayer(1, 1, 0);
 
           // P3: IJKL or Numpad 8/5/4/6
-          else if (e.key === 'i' || e.key === 'I' || e.code === 'Numpad8') game.movePlayer(2, 0, -1);
-          else if (e.key === 'k' || e.key === 'K' || e.code === 'Numpad5' || e.code === 'Numpad2') game.movePlayer(2, 0, 1);
-          else if (e.key === 'j' || e.key === 'J' || e.code === 'Numpad4') game.movePlayer(2, -1, 0);
-          else if (e.key === 'l' || e.key === 'L' || e.code === 'Numpad6') game.movePlayer(2, 1, 0);
+          else if (e.key === 'i' || e.key === 'I' || e.code === 'KeyI' || e.code === 'Numpad8') game.movePlayer(2, 0, -1);
+          else if (e.key === 'k' || e.key === 'K' || e.code === 'KeyK' || e.code === 'Numpad5' || e.code === 'Numpad2') game.movePlayer(2, 0, 1);
+          else if (e.key === 'j' || e.key === 'J' || e.code === 'KeyJ' || e.code === 'Numpad4') game.movePlayer(2, -1, 0);
+          else if (e.key === 'l' || e.key === 'L' || e.code === 'KeyL' || e.code === 'Numpad6') game.movePlayer(2, 1, 0);
 
           // P4: TFGH
-          else if (e.key === 't' || e.key === 'T') game.movePlayer(3, 0, -1);
-          else if (e.key === 'g' || e.key === 'G') game.movePlayer(3, 0, 1);
-          else if (e.key === 'f' || e.key === 'F') game.movePlayer(3, -1, 0);
-          else if (e.key === 'h' || e.key === 'H') game.movePlayer(3, 1, 0);
+          else if (e.key === 't' || e.key === 'T' || e.code === 'KeyT') game.movePlayer(3, 0, -1);
+          else if (e.key === 'g' || e.key === 'G' || e.code === 'KeyG') game.movePlayer(3, 0, 1);
+          else if (e.key === 'f' || e.key === 'F' || e.code === 'KeyF') game.movePlayer(3, -1, 0);
+          else if (e.key === 'h' || e.key === 'H' || e.code === 'KeyH') game.movePlayer(3, 1, 0);
 
-          else if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
+          else if (e.key === 'Escape' || e.key === 'p' || e.key === 'P' || e.code === 'KeyP') {
             if (btnPauseToggle) btnPauseToggle.click();
           }
         }
       } else if (game.isVersus) {
         if (game.netRole === 'client') {
           // LAN Client Mode (P2 on Computer B): Can use EITHER Arrow keys or WASD!
-          if (['ArrowUp', 'w', 'W'].includes(e.key)) game.movePlayer(0, -1);
-          else if (['ArrowDown', 's', 'S'].includes(e.key)) game.movePlayer(0, 1);
-          else if (['ArrowLeft', 'a', 'A'].includes(e.key)) game.movePlayer(-1, 0);
-          else if (['ArrowRight', 'd', 'D'].includes(e.key)) game.movePlayer(1, 0);
-          else if (['Escape', 'p', 'P'].includes(e.key)) {
+          if (['ArrowUp', 'w', 'W'].includes(e.key) || e.code === 'KeyW') game.movePlayer(0, -1);
+          else if (['ArrowDown', 's', 'S'].includes(e.key) || e.code === 'KeyS') game.movePlayer(0, 1);
+          else if (['ArrowLeft', 'a', 'A'].includes(e.key) || e.code === 'KeyA') game.movePlayer(-1, 0);
+          else if (['ArrowRight', 'd', 'D'].includes(e.key) || e.code === 'KeyD') game.movePlayer(1, 0);
+          else if (['Escape', 'p', 'P'].includes(e.key) || e.code === 'KeyP') {
             if (btnPauseToggle) btnPauseToggle.click();
           }
         } else if (game.netRole === 'host') {
           // LAN Host Mode (P1 on Computer A): Controls Blue P1 with Arrows or WASD
-          if (['ArrowUp', 'w', 'W'].includes(e.key)) game.movePlayer(0, 0, -1);
-          else if (['ArrowDown', 's', 'S'].includes(e.key)) game.movePlayer(0, 0, 1);
-          else if (['ArrowLeft', 'a', 'A'].includes(e.key)) game.movePlayer(0, -1, 0);
-          else if (['ArrowRight', 'd', 'D'].includes(e.key)) game.movePlayer(0, 1, 0);
-          else if (['Escape', 'p', 'P'].includes(e.key)) {
+          if (['ArrowUp', 'w', 'W'].includes(e.key) || e.code === 'KeyW') game.movePlayer(0, 0, -1);
+          else if (['ArrowDown', 's', 'S'].includes(e.key) || e.code === 'KeyS') game.movePlayer(0, 0, 1);
+          else if (['ArrowLeft', 'a', 'A'].includes(e.key) || e.code === 'KeyA') game.movePlayer(0, -1, 0);
+          else if (['ArrowRight', 'd', 'D'].includes(e.key) || e.code === 'KeyD') game.movePlayer(0, 1, 0);
+          else if (['Escape', 'p', 'P'].includes(e.key) || e.code === 'KeyP') {
             if (btnPauseToggle) btnPauseToggle.click();
           }
         } else {
           // Local Couch 1v1 Mode (Shared Keyboard): P1 WASD (left), P2 Arrow keys (right)
-          if (e.key === 'w' || e.key === 'W') game.movePlayer(0, 0, -1);
-          else if (e.key === 's' || e.key === 'S') game.movePlayer(0, 0, 1);
-          else if (e.key === 'a' || e.key === 'A') game.movePlayer(0, -1, 0);
-          else if (e.key === 'd' || e.key === 'D') game.movePlayer(0, 1, 0);
+          if (e.key === 'w' || e.key === 'W' || e.code === 'KeyW') game.movePlayer(0, 0, -1);
+          else if (e.key === 's' || e.key === 'S' || e.code === 'KeyS') game.movePlayer(0, 0, 1);
+          else if (e.key === 'a' || e.key === 'A' || e.code === 'KeyA') game.movePlayer(0, -1, 0);
+          else if (e.key === 'd' || e.key === 'D' || e.code === 'KeyD') game.movePlayer(0, 1, 0);
           else if (e.key === 'ArrowUp') game.movePlayer(1, 0, -1);
           else if (e.key === 'ArrowDown') game.movePlayer(1, 0, 1);
           else if (e.key === 'ArrowLeft') game.movePlayer(1, -1, 0);
           else if (e.key === 'ArrowRight') game.movePlayer(1, 1, 0);
-          else if (e.key === 'Escape' || e.key === 'p' || e.key === 'P') {
+          else if (e.key === 'Escape' || e.key === 'p' || e.key === 'P' || e.code === 'KeyP') {
             if (btnPauseToggle) btnPauseToggle.click();
           }
         }
       } else {
-        // Single Player Mode: Both Arrow Keys and WASD control Player 1
-        switch (e.key) {
-          case 'ArrowUp':
-          case 'w':
-          case 'W':
-            game.movePlayer(0, -1);
-            break;
-          case 'ArrowDown':
-          case 's':
-          case 'S':
-            game.movePlayer(0, 1);
-            break;
-          case 'ArrowLeft':
-          case 'a':
-          case 'A':
-            game.movePlayer(-1, 0);
-            break;
-          case 'ArrowRight':
-          case 'd':
-          case 'D':
-            game.movePlayer(1, 0);
-            break;
-          case 'Escape':
-          case 'p':
-          case 'P':
-            if (btnPauseToggle) btnPauseToggle.click();
-            break;
+        // Single Player Mode: Both Arrow Keys and WASD control Player 1 (robustly checks e.key and e.code)
+        const isUp = ['ArrowUp', 'w', 'W'].includes(e.key) || e.code === 'KeyW';
+        const isDown = ['ArrowDown', 's', 'S'].includes(e.key) || e.code === 'KeyS';
+        const isLeft = ['ArrowLeft', 'a', 'A'].includes(e.key) || e.code === 'KeyA';
+        const isRight = ['ArrowRight', 'd', 'D'].includes(e.key) || e.code === 'KeyD';
+        const isPause = ['Escape', 'p', 'P'].includes(e.key) || e.code === 'KeyP';
+
+        if (isUp) {
+          game.movePlayer(0, -1);
+        } else if (isDown) {
+          game.movePlayer(0, 1);
+        } else if (isLeft) {
+          game.movePlayer(-1, 0);
+        } else if (isRight) {
+          game.movePlayer(1, 0);
+        } else if (isPause) {
+          if (btnPauseToggle) btnPauseToggle.click();
         }
       }
     } else if (game.state === 'MENU') {
