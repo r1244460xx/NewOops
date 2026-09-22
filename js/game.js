@@ -510,6 +510,8 @@ class Game {
   broadcastHostState() {
     if (!window.networkManager || !window.networkManager.isConnected) return;
     const sounds = this.pendingSounds.splice(0);
+    const r2 = (v) => (typeof v === 'number' ? Math.round(v * 100) / 100 : v);
+
     window.networkManager.sendState({
       state: this.state,
       mode: this.mode,
@@ -532,32 +534,32 @@ class Game {
         row: p.row,
         prevCol: p.prevCol !== undefined ? p.prevCol : p.col,
         prevRow: p.prevRow !== undefined ? p.prevRow : p.row,
-        animX: p.animX,
-        animY: p.animY,
-        hopZ: p.hopZ,
-        tiltAngle: p.tiltAngle,
+        animX: r2(p.animX),
+        animY: r2(p.animY),
+        hopZ: r2(p.hopZ),
+        tiltAngle: r2(p.tiltAngle),
         isHopping: p.isHopping,
-        hopProgress: p.hopProgress || 0,
+        hopProgress: r2(p.hopProgress || 0),
         hopDuration: p.hopDuration || 0.16,
         isScared: p.isScared,
         isDead: p.isDead,
         momentumSteps: p.momentumSteps || 0,
-        momentumTimer: p.momentumTimer || 0,
-        stunTimer: p.stunTimer || 0,
-        recoilX: p.recoilX || 0,
-        recoilY: p.recoilY || 0
+        momentumTimer: r2(p.momentumTimer || 0),
+        stunTimer: r2(p.stunTimer || 0),
+        recoilX: r2(p.recoilX || 0),
+        recoilY: r2(p.recoilY || 0)
       })),
       obstacles: this.obstacleManager.obstacles.map(o => ({
         type: o.type,
-        x: o.x,
-        y: o.y,
-        vx: o.vx,
-        vy: o.vy,
+        x: r2(o.x),
+        y: r2(o.y),
+        vx: r2(o.vx),
+        vy: r2(o.vy),
         side: o.side,
         index: o.index,
-        rotation: o.rotation,
+        rotation: r2(o.rotation),
         direction: o.direction,
-        duration: o.duration,
+        duration: r2(o.duration),
         maxDuration: o.maxDuration
       })),
       warnings: this.obstacleManager.warnings.map(w => ({
@@ -565,13 +567,13 @@ class Game {
         side: w.side,
         index: w.index,
         direction: w.direction,
-        timer: w.timer,
+        timer: r2(w.timer),
         maxTimer: w.maxTimer
       })),
       collectibles: this.collectibles.map(c => ({
         col: c.col,
         row: c.row,
-        life: c.life
+        life: r2(c.life)
       })),
       banner: this.activeBanner,
       sounds: sounds

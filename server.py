@@ -123,6 +123,9 @@ class WSClientWrapper:
 
     def send_raw_text(self, text):
         frame = encode_ws_frame(text)
+        self.send_encoded_frame(frame)
+
+    def send_encoded_frame(self, frame):
         with self.lock:
             try:
                 self.wfile.write(frame)
@@ -243,9 +246,11 @@ class RoomManager:
                         room["host"].send_raw_text(data_str)
                         return
                     elif client.role == "host":
-                        for c in room.get("clients", []):
-                            if c:
-                                c.send_raw_text(data_str)
+                        clients = [c for c in room.get("clients", []) if c]
+                        if clients:
+                            frame = encode_ws_frame(data_str)
+                            for c in clients:
+                                c.send_encoded_frame(frame)
                         return
 
         try:

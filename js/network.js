@@ -196,6 +196,11 @@ class NetworkManager {
     this.ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
+        // CRITICAL OPTIMIZATION: If this client has an active P2P DataChannel,
+        // drop any delayed 'state' packets arriving via WebSocket to eliminate jitter & rollback!
+        if (this.role === 'client' && this.isP2PActive && this.dc && this.dc.readyState === 'open' && msg.type === 'state') {
+          return;
+        }
         this.handleMessage(msg);
       } catch (err) {
         console.error('[Network] Error parsing message:', err, event.data);
@@ -224,9 +229,9 @@ class NetworkManager {
     this.clearP2PTimeoutGuard();
     this.p2pTimeoutTimer = setTimeout(() => {
       if (!this.isP2PActive) {
-        this.handleP2PTimeout('3秒內無法建立 P2P 直連（網路環境受限），為確保遊戲品質已終止對戰');
+        this.handleP2PTimeout('5秒內無法建立 P2P 直連（網路環境受限），為確保遊戲品質已終止對戰');
       }
-    }, 3000);
+    }, 5000);
   }
 
   clearP2PTimeoutGuard() {
@@ -320,6 +325,7 @@ class NetworkManager {
         console.log(`[WebRTC] ⚡ DataChannel OPEN for ${clientId} (P${playerIndex + 1})!`);
         peer.isConnected = true;
         this.isP2PActive = true;
+        this.startMultiPeerPing();
         if (this.onP2PConnected) this.onP2PConnected({ clientId, playerIndex });
       };
 
@@ -337,6 +343,25 @@ class NetworkManager {
       dc.onmessage = (event) => {
         try {
           const msg = JSON.parse(event.data);
+          if (msg.type === 'p2p_ping') {
+            // Echo p2p_pong directly back on this peer's DataChannel
+            try { dc.send(JSON.stringify({ type: 'p2p_pong', t: msg.t })); } catch (e) {}
+            return;
+          }
+          if (msg.type === 'p2p_pong') {
+            const now = performance.now();
+            const sent = (msg.t !== undefined && msg.t !== null) ? msg.t : (peer.lastPingSent || now);
+            const rtt = Math.max(1, Math.round(now - sent));
+            peer.ping = rtt;
+            let maxPing = rtt;
+            for (const k in this.peerClients) {
+              if (this.peerClients[k].ping) maxPing = Math.max(maxPing, this.peerClients[k].ping);
+            }
+            this.p2pPing = maxPing;
+            this.currentPing = maxPing;
+            if (this.onPing) this.onPing(maxPing, true);
+            return;
+          }
           if (msg.type === 'input') {
             msg.playerIndex = playerIndex;
           }
@@ -481,11 +506,33 @@ class NetworkManager {
     dc.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
+        if (msg.type === 'p2p_ping') {
+          try { dc.send(JSON.stringify({ type: 'p2p_pong', t: msg.t })); } catch (e) {}
+          return;
+        }
         this.handleMessage(msg);
       } catch (err) {
         console.error('[WebRTC] Error parsing DataChannel packet:', err);
       }
     };
+  }
+
+  startMultiPeerPing() {
+    if (this.p2pPingInterval) return;
+    const pingFn = () => {
+      if (this.role === 'host' && this.isMultiClient && this.peerClients) {
+        const now = performance.now();
+        for (const cid in this.peerClients) {
+          const peer = this.peerClients[cid];
+          if (peer && peer.dc && peer.dc.readyState === 'open') {
+            peer.lastPingSent = now;
+            try { peer.dc.send(JSON.stringify({ type: 'p2p_ping', t: now })); } catch (e) {}
+          }
+        }
+      }
+    };
+    pingFn();
+    this.p2pPingInterval = setInterval(pingFn, 1000);
   }
 
   startP2PPing() {
@@ -645,14 +692,39 @@ class NetworkManager {
   }
 
   send(data) {
-    // Priority 1: Send over WebRTC P2P DataChannel if active
-    if (this.isP2PActive && this.dc && this.dc.readyState === 'open') {
-      this.dc.send(JSON.stringify(data));
-      return;
+    const jsonStr = (typeof data === 'string') ? data : JSON.stringify(data);
+
+    // Multi-peer mode on Host: broadcast to all connected peer DataChannels
+    if (this.role === 'host' && this.isMultiClient && this.peerClients && Object.keys(this.peerClients).length > 0) {
+      let sentCount = 0;
+      let totalPeers = 0;
+      for (const cid in this.peerClients) {
+        totalPeers++;
+        const peer = this.peerClients[cid];
+        if (peer && peer.dc && peer.dc.readyState === 'open') {
+          try {
+            peer.dc.send(jsonStr);
+            sentCount++;
+          } catch (e) {}
+        }
+      }
+      // If all active peers received it over P2P DataChannels, do NOT fall back to WebSocket!
+      if (sentCount > 0 && sentCount === totalPeers) {
+        return;
+      }
     }
-    // Priority 2: Send over WebSocket
+
+    // 1v1 P2P mode (Host or Client)
+    if (this.isP2PActive && this.dc && this.dc.readyState === 'open') {
+      try {
+        this.dc.send(jsonStr);
+        return;
+      } catch (e) {}
+    }
+
+    // Priority 2: Fallback to WebSocket only if P2P is not available
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(data));
+      this.ws.send(jsonStr);
     }
   }
 
@@ -701,21 +773,55 @@ class NetworkManager {
   }
 
   sendState(stateSnapshot) {
-    if (this.role === 'host') {
-      const data = {
-        type: 'state',
-        ...stateSnapshot
-      };
+    if (this.role !== 'host') return;
+
+    const data = {
+      type: 'state',
+      ...stateSnapshot
+    };
+    const str = JSON.stringify(data);
+
+    // Multi-client mode (3P / 4P)
+    if (this.isMultiClient) {
+      let missingP2P = false;
+      let peerCount = 0;
+
       if (this.peerClients && Object.keys(this.peerClients).length > 0) {
-        const str = JSON.stringify(data);
         for (const cid in this.peerClients) {
+          peerCount++;
           const peer = this.peerClients[cid];
           if (peer && peer.dc && peer.dc.readyState === 'open') {
-            try { peer.dc.send(str); } catch (e) {}
+            try {
+              peer.dc.send(str);
+            } catch (e) {
+              missingP2P = true;
+            }
+          } else {
+            missingP2P = true;
           }
         }
+      } else {
+        missingP2P = true;
       }
-      this.send(data);
+
+      // ONLY broadcast over WebSocket if at least one client does not have an open P2P DataChannel!
+      if (missingP2P && this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.send(str);
+      }
+      return;
+    }
+
+    // 1v1 Mode: If P2P active, send via DataChannel and return immediately!
+    if (this.isP2PActive && this.dc && this.dc.readyState === 'open') {
+      try {
+        this.dc.send(str);
+        return;
+      } catch (e) {}
+    }
+
+    // 1v1 Mode: Fallback to WebSocket
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.ws.send(str);
     }
   }
 
