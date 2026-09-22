@@ -1203,11 +1203,51 @@ class GameRenderer {
     ctx.save();
     ctx.translate(screenX, screenY);
 
+    const pColors = ['#007aff', '#ff3b30', '#30d158', '#ff9f0a'];
+    const pColor = player.color || (player.id && player.id >= 1 ? pColors[(player.id - 1) % pColors.length] : null);
+
     const shadowScale = Math.max(0.4, 1 - hopElev * 0.025);
     ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
     ctx.beginPath();
     ctx.ellipse(0, 14, 14 * shadowScale, 6 * shadowScale, 0, 0, Math.PI * 2);
     ctx.fill();
+
+    // Ground colored aura ring for multiplayer players
+    if (pColor) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.ellipse(0, 14, 17, 7.5, 0, 0, Math.PI * 2);
+      ctx.fillStyle = pColor;
+      ctx.globalAlpha = 0.25;
+      ctx.fill();
+      ctx.lineWidth = 1.8;
+      ctx.strokeStyle = pColor;
+      ctx.globalAlpha = 0.6;
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Local player (YOU) prominent ground double aura: rotating gold dash ring + glow
+    if (player.isLocal) {
+      ctx.save();
+      // Outer rotating gold dashed ring
+      ctx.lineWidth = 2.2;
+      ctx.strokeStyle = '#ffd700';
+      ctx.setLineDash([5, 4]);
+      ctx.lineDashOffset = -this.bgTime * 35;
+      ctx.beginPath();
+      ctx.ellipse(0, 14, 22, 10, 0, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Inner white ring
+      ctx.setLineDash([]);
+      ctx.lineWidth = 1.8;
+      ctx.strokeStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.ellipse(0, 14, 18, 8, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
 
     ctx.translate(0, -hopElev);
     ctx.rotate(player.tiltAngle || 0);
@@ -1265,10 +1305,8 @@ class GameRenderer {
       ctx.stroke();
 
       if (player.id && player.id >= 1) {
-        const colors = ['#007aff', '#ff3b30', '#30d158', '#ff9f0a'];
-        const pColor = player.color || colors[(player.id - 1) % colors.length] || '#8e8e93';
         const badgeY = headY - 14;
-        ctx.fillStyle = pColor;
+        ctx.fillStyle = pColor || '#8e8e93';
         drawRoundedRect(ctx, -14, badgeY, 28, 13, 6);
         ctx.fill();
         ctx.strokeStyle = '#ffffff';
@@ -1281,6 +1319,17 @@ class GameRenderer {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(`P${player.id} 💀`, 0, badgeY + 7);
+
+        if (player.isLocal) {
+          const bounce = Math.sin(this.bgTime * 6) * 2;
+          const youY = badgeY - 16 + bounce;
+          ctx.fillStyle = '#ffd700';
+          drawRoundedRect(ctx, -16, youY, 32, 12, 5);
+          ctx.fill();
+          ctx.fillStyle = '#1c1c1e';
+          ctx.font = '900 8px "Fredoka", "Bungee", sans-serif';
+          ctx.fillText('YOU 💀', 0, youY + 6.5);
+        }
       } else {
         this.drawOopsBubble(ctx, 0, headY - 26);
       }
@@ -1328,6 +1377,17 @@ class GameRenderer {
       ctx.beginPath();
       ctx.arc(0, headY, headRadius, 0, Math.PI * 2);
       ctx.fill();
+
+      // Soft head color tint for multiplayer identification
+      if (pColor) {
+        ctx.save();
+        ctx.fillStyle = pColor;
+        ctx.globalAlpha = 0.22;
+        ctx.beginPath();
+        ctx.arc(0, headY, headRadius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
       ctx.stroke();
 
       ctx.fillStyle = '#1c1c1e';
@@ -1357,12 +1417,10 @@ class GameRenderer {
 
       // Multiplayer Indicator (P1 Blue / P2 Red / P3 Green / P4 Yellow)
       if (player.id >= 1 || player.color) {
-        const colors = ['#007aff', '#ff3b30', '#30d158', '#ff9f0a'];
-        const pColor = player.color || colors[(player.id - 1) % colors.length] || '#007aff';
         const pLabel = player.id ? `P${player.id}${player.isAi ? ' [BOT]' : ''}` : 'P';
 
         // Colored Headband with border
-        ctx.fillStyle = pColor;
+        ctx.fillStyle = pColor || '#007aff';
         drawRoundedRect(ctx, -headRadius + 0.5, headY - 4, headRadius * 2 - 1, 5, 2);
         ctx.fill();
 
@@ -1373,13 +1431,13 @@ class GameRenderer {
         ctx.moveTo(tailSide * (headRadius - 1), headY - 2);
         ctx.quadraticCurveTo(tailSide * (headRadius + 7), headY - 5 + wave, tailSide * (headRadius + 12), headY + wave);
         ctx.lineWidth = 3;
-        ctx.strokeStyle = pColor;
+        ctx.strokeStyle = pColor || '#007aff';
         ctx.stroke();
 
         // Floating P1~P4 pill badge above head
         const badgeY = headY - 24;
         const badgeW = player.isAi ? 46 : 24;
-        ctx.fillStyle = pColor;
+        ctx.fillStyle = pColor || '#007aff';
         drawRoundedRect(ctx, -badgeW / 2, badgeY, badgeW, 13, 6);
         ctx.fill();
         ctx.strokeStyle = '#ffffff';
@@ -1392,6 +1450,41 @@ class GameRenderer {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(pLabel, 0, badgeY + 7);
+
+        // Prominent bouncing "YOU ▼" indicator badge for the local player
+        if (player.isLocal) {
+          const bounce = Math.sin(this.bgTime * 8) * 3;
+          const youY = badgeY - 17 + bounce;
+
+          ctx.save();
+          // Gold YOU pill
+          ctx.fillStyle = '#ffd700';
+          drawRoundedRect(ctx, -17, youY, 34, 13, 6);
+          ctx.fill();
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1.6;
+          drawRoundedRect(ctx, -17, youY, 34, 13, 6);
+          ctx.stroke();
+
+          // Small downward pointer triangle pointing to player's badge/head
+          ctx.beginPath();
+          ctx.moveTo(-4, youY + 13);
+          ctx.lineTo(4, youY + 13);
+          ctx.lineTo(0, youY + 17);
+          ctx.closePath();
+          ctx.fillStyle = '#ffd700';
+          ctx.fill();
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1;
+          ctx.stroke();
+
+          ctx.fillStyle = '#1c1c1e';
+          ctx.font = '900 8.5px "Fredoka", "Bungee", sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText('YOU', 0, youY + 7);
+          ctx.restore();
+        }
       }
 
       // Stunned dizzy stars effect

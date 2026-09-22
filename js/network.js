@@ -539,6 +539,16 @@ class NetworkManager {
   handleMessage(msg) {
     const type = msg.type;
 
+    // 0. Error Messages from Server
+    if (type === 'error') {
+      console.warn('[Network] Server returned error:', msg.message);
+      this.cleanup();
+      if (this.onError) {
+        this.onError(msg.message || '連線發生錯誤');
+      }
+      return;
+    }
+
     // 1. Signaling Messages
     if (type === 'signal_offer') {
       this.handleSignalOffer(msg);
@@ -749,6 +759,7 @@ class NetworkManager {
   sendRematchVote(ready = true) {
     this.send({
       type: 'rematch_vote',
+      playerIndex: this.playerIndex,
       ready
     });
   }

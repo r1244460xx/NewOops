@@ -42,8 +42,9 @@ class Game {
     this.waitingForOpponent = false;
     this.startCountdownTimer = 0;
     this.lastCountdownSec = 0;
-    this.rematchVotes = { p1: false, p2: false };
+    this.rematchVotes = { p1: false, p2: false, p3: false, p4: false };
     this.rematchStarting = false;
+    this.disconnectedPlayers = new Set();
     this.pendingSounds = [];
     this.activeBanner = null;
     this.lastShownBannerKey = null;
@@ -192,64 +193,96 @@ class Game {
       }
     };
 
+    net.onError = (errMsg) => {
+      console.warn('[Game] Network error:', errMsg);
+      this.playSound('bad');
+      this.showWaveBanner('連線失敗', errMsg || '無法加入房間', 4000);
+      setTimeout(() => {
+        this.returnToMenu();
+        const menuOverlay = document.getElementById('menu-overlay');
+        const gameHud = document.getElementById('game-hud');
+        if (menuOverlay) menuOverlay.classList.remove('hidden');
+        if (gameHud) gameHud.classList.add('hidden');
+      }, 1800);
+    };
+
     net.onJoined = (msg) => {
-      if (this.isVersus4p) {
-        const totalReq = this.versusPlayerCount || (this.mode === 'versus3p' ? 3 : 4);
-        const neededClients = totalReq - 1;
-        if (this.netRole === 'host') {
-          const clientCount = net ? net.connectedClientCount : 0;
-          if (clientCount < neededClients) {
-            this.waitingForOpponent = true;
-            this.state = 'WAITING_FOR_PLAYERS';
-            this.showWaveBanner('WAITING FOR PLAYERS', `已加入 ${clientCount + 1}/${totalReq} 人，等待全員到齊後開打...`, 0);
+      const serverMode = (msg && msg.mode) || (this.isVersus4p ? (this.versusPlayerCount === 3 ? 'versus3p' : 'versus4p') : 'versus');
+      const isMulti4p = (serverMode === 'versus3p' || serverMode === 'versus4p');
+      const totalReq = isMulti4p ? (serverMode === 'versus3p' ? 3 : 4) : 2;
+      this.versusPlayerCount = totalReq;
+
+      // Dynamic mode sync for client joining (joiner does not need to choose 2P/3P/4P!)
+      if (this.netRole === 'client') {
+        if (serverMode !== this.mode || isMulti4p !== this.isVersus4p) {
+          this.mode = serverMode;
+          this.isVersus4p = isMulti4p;
+          this.isVersus = true;
+          if (isMulti4p) {
+            this.setupVersus4pBoard(totalReq);
+            const hudModeName = document.getElementById('hud-mode-name');
+            if (hudModeName) hudModeName.textContent = (serverMode === 'versus3p') ? '3P BATTLE ROYALE' : '4P BATTLE ROYALE';
+            const hudVersus4pItem = document.getElementById('hud-versus4p-item');
+            if (hudVersus4pItem) hudVersus4pItem.classList.remove('hidden');
+            const hudVersus4pLabel = document.getElementById('hud-versus4p-label');
+            if (hudVersus4pLabel) hudVersus4pLabel.textContent = (serverMode === 'versus3p') ? '3P SURVIVAL' : '4P SURVIVAL';
+            const hudVersusItem = document.getElementById('hud-versus-item');
+            if (hudVersusItem) hudVersusItem.classList.add('hidden');
+          } else {
+            this.setupVersusBoard();
+            const hudModeName = document.getElementById('hud-mode-name');
+            if (hudModeName) hudModeName.textContent = '1v1 VERSUS';
+            const hudVersus4pItem = document.getElementById('hud-versus4p-item');
+            if (hudVersus4pItem) hudVersus4pItem.classList.add('hidden');
+            const hudVersusItem = document.getElementById('hud-versus-item');
+            if (hudVersusItem) hudVersusItem.classList.remove('hidden');
           }
-          this.updateNetHudBadge();
-        } else if (this.netRole === 'client') {
-          this.waitingForOpponent = true;
-          this.state = 'WAITING_FOR_PLAYERS';
-          const pIdx = (typeof msg.playerIndex === 'number') ? msg.playerIndex : 1;
-          this.showWaveBanner(`你是 P${pIdx + 1} 號玩家`, `等待房主與其他玩家全員到齊 (${totalReq}/${totalReq})...`, 0);
-          this.updateNetHudBadge();
         }
+
+        this.waitingForOpponent = true;
+        this.state = 'WAITING_FOR_PLAYERS';
+        const myIdx = (msg && typeof msg.playerIndex === 'number') ? msg.playerIndex : 1;
+        this.player = (this.players && this.players[myIdx]) ? this.players[myIdx] : (this.players ? this.players[0] : this.player);
+        const pColorNames = ['藍色 🔵', '紅色 🔴', '綠色 🟢', '橘色 🟠'];
+        const myColor = pColorNames[myIdx] || '紅色 🔴';
+        this.showWaveBanner(`你是 P${myIdx + 1} (${myColor}) [YOU]`, `成功加入！等待房主與全員到齊 (${totalReq}人房)...`, 0);
+        this.updateNetHudBadge();
         return;
       }
 
+      // Host
       if (this.netRole === 'host') {
-        if (msg.opponent_present && (this.state === 'WAITING_FOR_PLAYERS' || this.waitingForOpponent)) {
-          this.waitingForOpponent = false;
-          this.updateNetHudBadge();
-          // WebRTC P2P handshake starts automatically; countdown triggers on onP2PConnected
+        const clientCount = net ? net.connectedClientCount : 0;
+        const neededClients = totalReq - 1;
+        if (clientCount < neededClients) {
+          this.waitingForOpponent = true;
+          this.state = 'WAITING_FOR_PLAYERS';
+          this.showWaveBanner('WAITING FOR PLAYERS', `已加入 ${clientCount + 1}/${totalReq} 人，等待全員到齊後開打...`, 0);
         } else {
-          this.updateNetHudBadge();
+          this.waitingForOpponent = false;
         }
-      } else if (this.netRole === 'client') {
         this.updateNetHudBadge();
       }
     };
 
     net.onOpponentJoined = (msg) => {
       this.updateNetHudBadge();
+      const totalReq = this.versusPlayerCount || (this.mode === 'versus3p' ? 3 : (this.isVersus4p ? 4 : 2));
+      const pIdx = msg && typeof msg.playerIndex === 'number' ? msg.playerIndex : null;
+      if (pIdx !== null && this.players && this.players[pIdx]) {
+        this.players[pIdx].isAi = false;
+        if (this.isVersus4p) this.updateVersus4pHud();
+        else this.updateVersusHud();
+      }
+
       if (this.netRole === 'host') {
-        if (this.isVersus4p) {
-          const totalReq = this.versusPlayerCount || (this.mode === 'versus3p' ? 3 : 4);
-          const neededClients = totalReq - 1;
-          const pIdx = msg && typeof msg.playerIndex === 'number' ? msg.playerIndex : null;
-          if (pIdx !== null && this.players && this.players[pIdx]) {
-            this.players[pIdx].isAi = false;
-            this.updateVersus4pHud();
-          }
-          const clientCount = net ? net.connectedClientCount : 0;
-          if (clientCount < neededClients) {
-            this.waitingForOpponent = true;
-            this.state = 'WAITING_FOR_PLAYERS';
-            const total = (msg && msg.totalClients ? msg.totalClients : clientCount) + 1;
-            this.showWaveBanner('WAITING FOR PLAYERS', `已加入 ${total}/${totalReq} 人，等待全員到齊後開打...`, 0);
-          }
-        } else {
-          if (this.state === 'WAITING_FOR_PLAYERS' || this.waitingForOpponent) {
-            this.waitingForOpponent = false;
-            // WebRTC P2P handshake starts automatically; countdown triggers on onP2PConnected
-          }
+        const neededClients = totalReq - 1;
+        const clientCount = net ? net.connectedClientCount : 0;
+        if (clientCount < neededClients) {
+          this.waitingForOpponent = true;
+          this.state = 'WAITING_FOR_PLAYERS';
+          const total = (msg && msg.totalClients ? msg.totalClients : clientCount) + 1;
+          this.showWaveBanner('WAITING FOR PLAYERS', `已加入 ${total}/${totalReq} 人，等待全員到齊後開打...`, 0);
         }
       }
     };
@@ -267,17 +300,17 @@ class Game {
       console.log('[Game] ⚡ WebRTC P2P Connected successfully!', info);
       this.updateNetHudBadge();
 
-      if (this.isVersus4p) {
-        const totalReq = this.versusPlayerCount || (this.mode === 'versus3p' ? 3 : 4);
-        const neededClients = totalReq - 1;
-        if (info && typeof info.playerIndex === 'number' && this.players && this.players[info.playerIndex]) {
-          this.players[info.playerIndex].isAi = false;
-          this.updateVersus4pHud();
-        }
+      const totalReq = this.versusPlayerCount || (this.mode === 'versus3p' ? 3 : (this.isVersus4p ? 4 : 2));
+      const neededClients = totalReq - 1;
+      if (info && typeof info.playerIndex === 'number' && this.players && this.players[info.playerIndex]) {
+        this.players[info.playerIndex].isAi = false;
+        if (this.isVersus4p) this.updateVersus4pHud();
+        else this.updateVersusHud();
+      }
 
+      if (totalReq > 2) {
         const clientCount = net ? net.connectedClientCount : 0;
         if (clientCount >= neededClients) {
-          // Exactly all players ready: Host (P1) + Clients
           this.waitingForOpponent = false;
           if (this.netRole === 'host' && (this.state === 'WAITING_FOR_PLAYERS' || this.waitingForOpponent || this.state === 'START_COUNTDOWN')) {
             this.startMatchCountdown(3);
@@ -318,36 +351,47 @@ class Game {
 
     net.onOpponentLeft = (msg) => {
       this.updateNetHudBadge();
-      if (this.isVersus4p) {
-        const totalReq = this.versusPlayerCount || (this.mode === 'versus3p' ? 3 : 4);
-        const pIdx = msg && typeof msg.playerIndex === 'number' ? msg.playerIndex : null;
-        const pNames = ['P1', 'P2', 'P3', 'P4'];
-        const leftName = (pIdx !== null && pNames[pIdx]) ? pNames[pIdx] : '有玩家';
+      const totalReq = this.versusPlayerCount || (this.mode === 'versus3p' ? 3 : (this.isVersus4p ? 4 : 2));
+      const pIdx = msg && typeof msg.playerIndex === 'number' ? msg.playerIndex : null;
+      const pNames = ['P1', 'P2', 'P3', 'P4'];
+      const leftName = (pIdx !== null && pNames[pIdx]) ? pNames[pIdx] : '有玩家';
 
-        if (this.netRole === 'host') {
-          const clientCount = net ? net.connectedClientCount : 0;
-          this.waitingForOpponent = true;
-          this.state = 'WAITING_FOR_PLAYERS';
-          this.showWaveBanner('PLAYER LEFT', `${leftName} 已離線！目前 ${clientCount + 1}/${totalReq} 人，等待全員到齊...`, 0);
-          this.sound.stopBgm();
-          this.broadcastHostState();
-        } else if (this.netRole === 'client') {
-          this.state = 'WAITING_FOR_PLAYERS';
-          if (msg && msg.role === 'host') {
-            this.showWaveBanner('HOST LEFT', '房主已離開房間，連線已關閉', 0);
-          } else {
-            this.showWaveBanner('PLAYER LEFT', `${leftName} 已離線，等待全員到齊...`, 0);
-          }
-          this.sound.stopBgm();
-        }
+      if (pIdx !== null) {
+        if (!this.disconnectedPlayers) this.disconnectedPlayers = new Set();
+        this.disconnectedPlayers.add(pIdx);
+      }
+
+      // If game is over, update the rematch status bar to show the player as disconnected
+      if (this.state === 'GAME_OVER') {
+        this.updateRematchUi();
+        return;
+      }
+
+      // Host left room
+      if (msg && msg.role === 'host') {
+        this.showWaveBanner('HOST LEFT', '房主已解散房間，即將返回主選單...', 3000);
+        this.sound.stopBgm();
+        setTimeout(() => {
+          this.returnToMenu();
+          const menuOverlay = document.getElementById('menu-overlay');
+          const gameHud = document.getElementById('game-hud');
+          if (menuOverlay) menuOverlay.classList.remove('hidden');
+          if (gameHud) gameHud.classList.add('hidden');
+        }, 2000);
         return;
       }
 
       if (this.netRole === 'host') {
-        this.showWaveBanner('OPPONENT LEFT', 'P2 DISCONNECTED', 0);
-        this.pauseGame('p2_left');
+        const clientCount = net ? net.connectedClientCount : 0;
+        this.waitingForOpponent = true;
+        this.state = 'WAITING_FOR_PLAYERS';
+        this.showWaveBanner('PLAYER LEFT', `${leftName} 已離線！目前 ${clientCount + 1}/${totalReq} 人，等待全員到齊...`, 0);
+        this.sound.stopBgm();
+        this.broadcastHostState();
       } else if (this.netRole === 'client') {
-        this.showWaveBanner('HOST LEFT', 'ROOM CLOSED', 0);
+        this.state = 'WAITING_FOR_PLAYERS';
+        this.showWaveBanner('PLAYER LEFT', `${leftName} 已離線，等待重新連線...`, 0);
+        this.sound.stopBgm();
       }
     };
 
@@ -375,13 +419,15 @@ class Game {
 
     net.onRematchVote = (msg) => {
       if (this.netRole === 'host') {
-        this.setRematchVote('p2', Boolean(msg.ready));
+        const pIdx = (typeof msg.playerIndex === 'number') ? msg.playerIndex : 1;
+        const pKey = `p${pIdx + 1}`;
+        this.setRematchVote(pKey, Boolean(msg.ready));
       }
     };
 
     net.onRematchSync = (msg) => {
       if (this.netRole === 'client') {
-        this.rematchVotes = msg.rematchVotes || { p1: false, p2: false };
+        this.rematchVotes = msg.rematchVotes || { p1: false, p2: false, p3: false, p4: false };
         this.updateRematchUi(msg.startingSoon);
         if (msg.startingSoon) {
           this.playSound('gem');
@@ -788,8 +834,9 @@ class Game {
     this.gameOverDelay = 0;
     this.bufferedMove = null;
     this.pausedBy = null;
-    this.rematchVotes = { p1: false, p2: false };
+    this.rematchVotes = { p1: false, p2: false, p3: false, p4: false };
     this.rematchStarting = false;
+    if (this.disconnectedPlayers) this.disconnectedPlayers.clear();
 
     this.isVersus = false;
     this.isVersus4p = false;
@@ -1011,10 +1058,18 @@ class Game {
       this.domElements.versusVal = document.getElementById('hud-versus-val');
     }
     const valEl = this.domElements.versusVal;
-    if (valEl && (this.lastVersusP1 !== this.versusScores.p1 || this.lastVersusP2 !== this.versusScores.p2)) {
-      this.lastVersusP1 = this.versusScores.p1;
-      this.lastVersusP2 = this.versusScores.p2;
-      valEl.innerHTML = `<span style="color:#007aff; font-weight:900;">P1: ${this.versusScores.p1}</span> <span style="color:#8e8e93;">-</span> <span style="color:#ff3b30; font-weight:900;">P2: ${this.versusScores.p2}</span>`;
+    if (valEl) {
+      const net = window.networkManager;
+      const myIdx = (this.netRole === 'client' && net && typeof net.playerIndex === 'number')
+        ? net.playerIndex
+        : (this.netRole === 'host' ? 0 : null);
+      const p1Tag = myIdx === 0 ? ' [YOU]' : '';
+      const p2Tag = myIdx === 1 ? ' [YOU]' : '';
+      const key = `${this.versusScores.p1}-${this.versusScores.p2}-${p1Tag}-${p2Tag}`;
+      if (this.lastVersusKey !== key) {
+        this.lastVersusKey = key;
+        valEl.innerHTML = `<span style="color:#007aff; font-weight:900;">P1${p1Tag}: ${this.versusScores.p1}</span> <span style="color:#8e8e93;">-</span> <span style="color:#ff3b30; font-weight:900;">P2${p2Tag}: ${this.versusScores.p2}</span>`;
+      }
     }
   }
 
@@ -1090,8 +1145,10 @@ class Game {
         const pl = this.players[i];
         const isDead = pl ? pl.isDead : false;
         const isAi = pl ? pl.isAi : false;
+        const isLocal = pl === this.player;
+        const youTag = isLocal ? ' [YOU]' : '';
         const botTag = (!this.netRole && isAi) ? ' [BOT]' : '';
-        pill.textContent = `P${i + 1}${botTag}: ${score}${isDead ? ' 💀' : ''}`;
+        pill.textContent = `P${i + 1}${youTag}${botTag}: ${score}${isDead ? ' 💀' : ''}`;
         if (isDead) {
           pill.classList.add('dead');
         } else {
@@ -1173,15 +1230,21 @@ class Game {
   }
 
   setRematchVote(player, ready = true) {
-    if (!this.isVersus || !this.netRole) {
+    if ((!this.isVersus && !this.isVersus4p) || !this.netRole) {
       const goOverlay = document.getElementById('gameover-overlay');
       if (goOverlay) goOverlay.classList.add('hidden');
       this.restartGame();
       return;
     }
 
+    if (!this.rematchVotes) {
+      this.rematchVotes = { p1: false, p2: false, p3: false, p4: false };
+    }
+
     if (this.netRole === 'client') {
-      this.rematchVotes.p2 = ready;
+      const net = window.networkManager;
+      const myRole = `p${(net && typeof net.playerIndex === 'number' ? net.playerIndex : 1) + 1}`;
+      this.rematchVotes[myRole] = ready;
       if (window.networkManager) {
         window.networkManager.sendRematchVote(ready);
       }
@@ -1196,8 +1259,12 @@ class Game {
     }
     this.updateRematchUi();
 
-    // Check mutual agreement
-    if (this.rematchVotes.p1 && this.rematchVotes.p2 && !this.rematchStarting) {
+    // Check mutual agreement across all required players
+    const totalReq = (this.mode === 'versus3p') ? 3 : ((this.mode === 'versus4p' || this.isVersus4p) ? 4 : 2);
+    const reqKeys = ['p1', 'p2', 'p3', 'p4'].slice(0, totalReq);
+    const allReady = reqKeys.every(k => this.rematchVotes[k]);
+
+    if (allReady && !this.rematchStarting) {
       this.rematchStarting = true;
       if (window.networkManager) {
         window.networkManager.sendRematchSync(this.rematchVotes, true);
@@ -1206,14 +1273,21 @@ class Game {
       this.playSound('gem');
 
       setTimeout(() => {
-        this.rematchVotes = { p1: false, p2: false };
+        this.rematchVotes = { p1: false, p2: false, p3: false, p4: false };
         this.rematchStarting = false;
+        if (this.disconnectedPlayers) this.disconnectedPlayers.clear();
         const goOverlay = document.getElementById('gameover-overlay');
         if (goOverlay) goOverlay.classList.add('hidden');
 
-        this.versusScores = { p1: 0, p2: 0 };
-        this.versusWinner = null;
-        this.setupVersusBoard();
+        if (totalReq > 2) {
+          this.versus4pScores = [0, 0, 0, 0];
+          this.versus4pWinner = null;
+          this.setupVersus4pBoard(totalReq);
+        } else {
+          this.versusScores = { p1: 0, p2: 0 };
+          this.versusWinner = null;
+          this.setupVersusBoard();
+        }
         this.startMatchCountdown(3);
       }, 1500);
     }
@@ -1222,10 +1296,8 @@ class Game {
   updateRematchUi(startingSoon = false) {
     const btnRetry = document.getElementById('btn-retry');
     const bar = document.getElementById('rematch-status-bar');
-    const pillP1 = document.getElementById('rematch-pill-p1');
-    const pillP2 = document.getElementById('rematch-pill-p2');
 
-    if (!this.isVersus || !this.netRole) {
+    if ((!this.isVersus && !this.isVersus4p) || !this.netRole) {
       if (bar) bar.style.display = 'none';
       if (btnRetry) {
         btnRetry.textContent = '再來一局 (SPACE)';
@@ -1235,35 +1307,47 @@ class Game {
     }
 
     if (bar) bar.style.display = 'flex';
-
-    if (pillP1) {
-      if (this.rematchVotes.p1) {
-        pillP1.className = 'rematch-pill ready';
-        pillP1.textContent = '🔵 P1: ✅ 已同意';
-      } else {
-        pillP1.className = 'rematch-pill';
-        pillP1.textContent = '🔵 P1: ⏳ 等待中';
-      }
+    if (!this.rematchVotes) {
+      this.rematchVotes = { p1: false, p2: false, p3: false, p4: false };
     }
 
-    if (pillP2) {
-      if (this.rematchVotes.p2) {
-        pillP2.className = 'rematch-pill ready';
-        pillP2.textContent = '🔴 P2: ✅ 已同意';
+    const totalReq = (this.mode === 'versus3p') ? 3 : ((this.mode === 'versus4p' || this.isVersus4p) ? 4 : 2);
+    const emojis = ['🔵', '🔴', '🟢', '🟠'];
+
+    for (let i = 1; i <= 4; i++) {
+      const pill = document.getElementById('rematch-pill-p' + i);
+      if (!pill) continue;
+      if (i > totalReq) {
+        pill.style.display = 'none';
       } else {
-        pillP2.className = 'rematch-pill';
-        pillP2.textContent = '🔴 P2: ⏳ 等待中';
+        pill.style.display = '';
+        const pKey = 'p' + i;
+        const colorEmoji = emojis[i - 1];
+        if (this.disconnectedPlayers && this.disconnectedPlayers.has(i - 1)) {
+          pill.className = 'rematch-pill left';
+          pill.textContent = `${colorEmoji} P${i}: 💀 已離線`;
+        } else if (this.rematchVotes[pKey]) {
+          pill.className = 'rematch-pill ready';
+          pill.textContent = `${colorEmoji} P${i}: ✅ 已同意`;
+        } else {
+          pill.className = 'rematch-pill';
+          pill.textContent = `${colorEmoji} P${i}: ⏳ 等待中`;
+        }
       }
     }
 
     if (btnRetry) {
       if (startingSoon) {
-        btnRetry.textContent = '🚀 雙方皆已同意！準備開戰...';
+        btnRetry.textContent = '🚀 全員皆已同意！準備開戰...';
         btnRetry.disabled = true;
       } else {
-        const myRole = this.netRole === 'host' ? 'p1' : 'p2';
+        const net = window.networkManager;
+        const myRole = (this.netRole === 'host') ? 'p1' : `p${(net && typeof net.playerIndex === 'number' ? net.playerIndex : 1) + 1}`;
+        const reqKeys = ['p1', 'p2', 'p3', 'p4'].slice(0, totalReq);
+        const readyCount = reqKeys.filter(k => this.rematchVotes[k]).length;
+
         if (this.rematchVotes[myRole]) {
-          btnRetry.textContent = '✅ 已同意 (等待對手 1/2...)';
+          btnRetry.textContent = `✅ 已同意 (等待全員 ${readyCount}/${totalReq})...`;
           btnRetry.disabled = true;
         } else {
           btnRetry.textContent = '⚔️ 同意再來一局';
@@ -2604,6 +2688,14 @@ class Game {
     this.lastTime = currentTime;
 
     this.update(dt);
+
+    if (this.players && this.players.length > 0) {
+      for (const pl of this.players) {
+        pl.isLocal = (pl === this.player);
+      }
+    } else if (this.player) {
+      this.player.isLocal = true;
+    }
 
     this.renderer.render(
       this.state,

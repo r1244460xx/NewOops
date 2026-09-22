@@ -177,16 +177,6 @@
         <h2 id="versus-modal-title" style="font-size: 24px; margin-bottom: 4px;">⚔️ 多人對戰連線大廳</h2>
         <p id="versus-modal-subtitle" style="font-size: 13px; color: #636366; margin-bottom: 12px;">選擇本機對決，或透過 WebRTC 建立 / 加入連線房間！</p>
 
-        <!-- Player Count Selector Dropdown above Local Mode -->
-        <div class="lobby-player-count-bar">
-          <label for="select-host-player-count">🎮 選擇對戰人數：</label>
-          <select id="select-host-player-count" class="lan-select">
-            <option value="2" selected>2 人對決 (1v1)</option>
-            <option value="3">3 人大亂鬥 (3-Player PK)</option>
-            <option value="4">4 人大亂鬥 (4-Player PK)</option>
-          </select>
-        </div>
-
         <div class="versus-options-grid">
           <!-- Option A: Local Couch 1v1 / 3P / 4P -->
           <button type="button" class="versus-opt-card" id="btn-opt-local">
@@ -194,8 +184,8 @@
             <div class="opt-header">
               <span class="opt-icon" id="icon-opt-local">🖥️</span>
               <div class="opt-info">
-                <div class="opt-title" id="title-opt-local">本機同鍵盤雙打 (Local 1v1)</div>
-                <div class="opt-desc" id="desc-opt-local">同一台電腦鍵盤：P1 WASD ⚔️ P2 方向鍵</div>
+                <div class="opt-title" id="title-opt-local">本機同鍵盤對戰 (Local PK)</div>
+                <div class="opt-desc" id="desc-opt-local">同電腦同鍵盤遊玩：P1 WASD ⚔️ P2 方向鍵</div>
               </div>
             </div>
           </button>
@@ -207,10 +197,21 @@
               <span class="opt-icon" id="icon-opt-host">🏠</span>
               <div class="opt-info">
                 <div class="opt-title" id="title-opt-host">建立對戰房間 (Host Game)</div>
-                <div class="opt-desc" id="desc-opt-host">設定房號，等待好友輸入相同房號加入！</div>
+                <div class="opt-desc" id="desc-opt-host">設定人數與房號，等待好友輸入房號加入！</div>
               </div>
             </div>
             <div class="lan-content">
+              <!-- Player Count Selector Dropdown ONLY for Host -->
+              <div class="lan-field-row" style="margin-bottom: 8px;">
+                <div class="lan-field" style="flex: 1;">
+                  <label for="select-host-player-count" style="font-weight: 700; color: #007aff;">🎮 選擇房間人數：</label>
+                  <select id="select-host-player-count" class="lan-select" style="width: 100%; padding: 7px 10px; border-radius: 8px; border: 1.5px solid #007aff; background: #fff; font-weight: 600;">
+                    <option value="2" selected>2 人對決 (1v1)</option>
+                    <option value="3">3 人大亂鬥 (3-Player PK)</option>
+                    <option value="4">4 人大亂鬥 (4-Player PK)</option>
+                  </select>
+                </div>
+              </div>
               <div class="lan-field-row">
                 <div class="lan-field" style="flex:1;">
                   <label>房間代碼：</label>
@@ -223,19 +224,19 @@
 
           <!-- Option C: Join Game -->
           <div class="versus-opt-card lan-card" id="card-lan-join">
-            <div class="opt-badge client-badge" id="badge-opt-join">線上 / 區網 • 我是客機 (P2 紅)</div>
+            <div class="opt-badge client-badge" id="badge-opt-join">線上 / 區網 • 加入房間 (自動配對)</div>
             <div class="opt-header">
               <span class="opt-icon" id="icon-opt-join">🎮</span>
               <div class="opt-info">
                 <div class="opt-title" id="title-opt-join">加入對戰房間 (Join Game)</div>
-                <div class="opt-desc" id="desc-opt-join">只需輸入房號點連線即可加入！</div>
+                <div class="opt-desc" id="desc-opt-join">只需輸入房號直接進入，對戰人數由房主決定！</div>
               </div>
             </div>
             <div class="lan-content">
               <div class="lan-field-row">
                 <div class="lan-field" style="flex:1;">
                   <label>房間代碼：</label>
-                  <input type="text" id="join-room-code" value="1234" maxlength="8">
+                  <input type="text" id="join-room-code" value="1234" maxlength="8" placeholder="輸入 4 位數房號">
                 </div>
                 <button type="button" class="btn btn-accent" id="btn-start-join" style="align-self: flex-end; padding: 9px 16px;">🔗 連線加入</button>
               </div>
@@ -298,9 +299,11 @@
           </div>
         </div>
 
-        <div id="rematch-status-bar" class="rematch-status-bar" style="display:none;">
+        <div id="rematch-status-bar" class="rematch-status-bar" style="display:none; flex-wrap: wrap;">
           <div class="rematch-pill" id="rematch-pill-p1">🔵 P1: ⏳ 等待中</div>
           <div class="rematch-pill" id="rematch-pill-p2">🔴 P2: ⏳ 等待中</div>
+          <div class="rematch-pill" id="rematch-pill-p3" style="display:none;">🟢 P3: ⏳ 等待中</div>
+          <div class="rematch-pill" id="rematch-pill-p4" style="display:none;">🟡 P4: ⏳ 等待中</div>
         </div>
 
         <div class="modal-actions">

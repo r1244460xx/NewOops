@@ -83,6 +83,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const titleJoin = document.getElementById('title-opt-join');
     const descJoin = document.getElementById('desc-opt-join');
 
+    if (badgeJoin) badgeJoin.textContent = '線上 / 區網 • 加入者';
+    if (titleJoin) titleJoin.textContent = '加入好友房間 (自動配對)';
+    if (descJoin) descJoin.textContent = '只需輸入房號直接進入，對戰人數由房主決定，系統自動分配角色與顏色！';
+
     if (count === 2) {
       if (modalTitle) modalTitle.textContent = '雙人對抗模式 (1v1 VERSUS)';
       if (modalSubtitle) modalSubtitle.textContent = '選擇本機同屏對戰，或透過區網 / 線上進行超低延遲直連 PK';
@@ -92,33 +96,24 @@ document.addEventListener('DOMContentLoaded', () => {
       if (badgeHost) badgeHost.textContent = '線上 / 區網 • 房主 (P1 藍)';
       if (titleHost) titleHost.textContent = '建立 2 人房間 (開房並開始)';
       if (descHost) descHost.textContent = '設定房號並開房，等待 1 位好友 (P2 紅) 輸入相同房號加入即可開打！';
-      if (badgeJoin) badgeJoin.textContent = '線上 / 區網 • 訪客 (P2 紅)';
-      if (titleJoin) titleJoin.textContent = '加入 2 人房間 (Join Game)';
-      if (descJoin) descJoin.textContent = '輸入好友的房號，直接超低延遲直連加入！';
     } else if (count === 3) {
       if (modalTitle) modalTitle.textContent = '3 人大亂鬥 PK 連線大廳';
-      if (modalSubtitle) modalSubtitle.textContent = '正中心開局！選擇本機 3 人混戰，或建立 / 加入連線房間 (線上需 3 人到齊才開始)';
+      if (modalSubtitle) modalSubtitle.textContent = '正中心開局！選擇本機 3 人混戰，或建立連線房間 (線上需 3 人到齊才開始)';
       if (badgeLocal) badgeLocal.textContent = '本機單機';
       if (titleLocal) titleLocal.textContent = '本機 3 人同機對戰 (支援 AI 補位)';
       if (descLocal) descLocal.textContent = 'P1 (WASD)、P2 (方向鍵)、P3 (IJKL/數字鍵)。無人操作時由 AI 電腦人補位！';
       if (badgeHost) badgeHost.textContent = '線上 / 區網 • 房主 (P1 藍)';
       if (titleHost) titleHost.textContent = '建立 3 人房間 (開房並開始)';
       if (descHost) descHost.textContent = '設定房號並開房，等待 2 位好友 (P2~P3) 全部加入即可開打！';
-      if (badgeJoin) badgeJoin.textContent = '線上 / 區網 • 加入者 (P2~P3)';
-      if (titleJoin) titleJoin.textContent = '加入 3 人房間 (自動分發玩家位)';
-      if (descJoin) descJoin.textContent = '輸入相同房號直連加入，系統自動分配 P2/P3 位，使用自己鍵盤即可操控！';
     } else {
       if (modalTitle) modalTitle.textContent = '4 人大亂鬥 PK 連線大廳';
-      if (modalSubtitle) modalSubtitle.textContent = '正中心開局！選擇本機 4 人混戰，或建立 / 加入連線房間 (線上需 4 人到齊才開始)';
+      if (modalSubtitle) modalSubtitle.textContent = '正中心開局！選擇本機 4 人混戰，或建立連線房間 (線上需 4 人到齊才開始)';
       if (badgeLocal) badgeLocal.textContent = '本機單機';
       if (titleLocal) titleLocal.textContent = '本機 4 人同機對戰 (支援 AI 補位)';
       if (descLocal) descLocal.textContent = 'P1 (WASD)、P2 (方向鍵)、P3 (IJKL/數字鍵)、P4 (TFGH)。無人操作時由 AI 電腦人補位！';
       if (badgeHost) badgeHost.textContent = '線上 / 區網 • 房主 (P1 藍)';
       if (titleHost) titleHost.textContent = '建立 4 人房間 (開房並開始)';
       if (descHost) descHost.textContent = '設定房號並開房，等待 3 位好友 (P2~P4) 全部加入即可開打！';
-      if (badgeJoin) badgeJoin.textContent = '線上 / 區網 • 加入者 (P2~P4)';
-      if (titleJoin) titleJoin.textContent = '加入 4 人房間 (自動分發玩家位)';
-      if (descJoin) descJoin.textContent = '輸入相同房號直連加入，系統自動分配 P2/P3/P4 位，使用自己鍵盤即可操控！';
     }
   }
 
@@ -181,10 +176,10 @@ document.addEventListener('DOMContentLoaded', () => {
     btnStartJoin.addEventListener('click', () => {
       const room = (joinRoomCode && joinRoomCode.value) ? joinRoomCode.value.trim() : '1234';
       if (window.networkManager) {
-        window.networkManager.connect('', 'client', room, currentLobbyMode);
+        window.networkManager.connect('', 'client', room, 'versus');
       }
       versusModal.classList.add('hidden');
-      startSelectedMode(currentLobbyMode, 'client');
+      startSelectedMode('versus', 'client');
       showToast('🔗 正在連線加入房間...');
     });
   }
@@ -432,15 +427,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (btnRetry) {
     btnRetry.addEventListener('click', () => {
-      if (game.isVersus4p && game.netRole) {
-        if (game.netRole === 'host') {
-          gameoverOverlay.classList.add('hidden');
-          game.restartGame();
-        } else {
-          showToast('等待房主重新開始對決...');
-        }
-      } else if (game.isVersus && game.netRole) {
-        const myRole = game.netRole === 'host' ? 'p1' : 'p2';
+      if ((game.isVersus || game.isVersus4p) && game.netRole) {
+        const net = window.networkManager;
+        const myRole = game.netRole === 'host' ? 'p1' : `p${(net && typeof net.playerIndex === 'number' ? net.playerIndex : 1) + 1}`;
         game.setRematchVote(myRole, true);
       } else {
         gameoverOverlay.classList.add('hidden');
