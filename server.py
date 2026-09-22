@@ -235,6 +235,12 @@ class RoomManager:
                                         msg["fromClientId"] = getattr(client, "client_id", "host")
                                         c.send_json(msg)
                                         return
+                                if target_id == "client":
+                                    clients = [c for c in room.get("clients", []) if c]
+                                    if clients:
+                                        msg["fromClientId"] = getattr(client, "client_id", "host")
+                                        clients[0].send_json(msg)
+                                        return
                 except Exception:
                     pass
 

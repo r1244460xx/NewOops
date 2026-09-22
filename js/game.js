@@ -356,7 +356,7 @@ class Game {
       if (typeof prevOnPing === 'function') {
         prevOnPing(pingMs, isP2P);
       }
-      if ((this.mode === 'versus' || this.mode === 'versus4p') && isP2P) {
+      if ((this.mode === 'versus' || this.mode === 'versus3p' || this.mode === 'versus4p' || this.isVersus4p) && isP2P) {
         this.updateNetHudBadge(pingMs);
       }
     };
@@ -464,7 +464,7 @@ class Game {
       }
 
       if (this.netRole === 'host') {
-        const isClientConnected = net && net.opponentConnected;
+        const isClientConnected = net && (net.connectedClientCount > 0 || net.opponentConnected);
         if (!isClientConnected) {
           badge.textContent = '🟡 等待對手加入...';
           badge.className = 'hud-net-badge waiting';
