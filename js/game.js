@@ -2445,7 +2445,8 @@ class Game {
         this.nextWave();
       }
 
-      // 5. Update collectibles
+      // 5. Update collectibles (暫時移除吃星星機制，保留邏輯供未來加回)
+      /*
       this.starSpawnCooldown -= dt;
       if (this.starSpawnCooldown <= 0) {
         this.spawnStar();
@@ -2459,6 +2460,7 @@ class Game {
           this.collectibles.splice(i, 1);
         }
       }
+      */
 
       // 6. Broadcast authoritative state to client (LAN Relay throttled to 30 Hz)
       if (this.netRole === 'host') {
@@ -2576,7 +2578,8 @@ class Game {
       this.nextWave();
     }
 
-    // 7. Update Collectibles
+    // 7. Update Collectibles (暫時移除吃星星機制，保留邏輯供未來加回)
+    /*
     this.starSpawnCooldown -= dt;
     if (this.starSpawnCooldown <= 0) {
       this.spawnStar();
@@ -2590,6 +2593,7 @@ class Game {
         this.collectibles.splice(i, 1);
       }
     }
+    */
   }
 
   gameLoop(currentTime) {
